@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncpg]
+pydantic
+pydantic-settings
+passlib[bcrypt]
+python-jose[cryptography]
+aiofiles
+pandas
+openpyxl
+networkx
+python-multipart
+langchain
+langchain-community
+pypdf
+neo4j==6.0.2
+langchain-ollama==0.3.10

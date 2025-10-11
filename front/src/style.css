@@ -1,0 +1,83 @@
+:root {
+  --sidebar-width: 210px;
+
+  /* Light Theme */
+  --el-color-primary: #409eff;
+  --el-color-primary-light-3: #79bbff;
+  --el-color-primary-light-5: #a0cfff;
+  --el-color-primary-light-7: #c6e2ff;
+  --el-color-primary-light-8: #d9ecff;
+  --el-color-primary-light-9: #ecf5ff;
+  --el-color-primary-dark-2: #337ecc;
+
+  --app-bg-color: #f0f2f5;
+  --header-bg-color: #ffffff;
+  --text-color-primary: #303133;
+  --text-color-regular: #606266;
+  --border-color-light: #e4e7ed;
+
+  /* Sidebar Dark Theme */
+  --sidebar-bg-color: #304156;
+  --sidebar-logo-text-color: #ffffff;
+  --sidebar-menu-text-color: #bfcbd9;
+  --sidebar-menu-active-text-color: #409eff; /* --el-color-primary */
+  --sidebar-menu-hover-bg-color: #263445;
+  --sidebar-submenu-bg-color: #1f2d3d;
+  --sidebar-border-color: transparent;
+}
+
+/* Global Styles */
+html, body {
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  background-color: var(--app-bg-color);
+  color: var(--text-color-primary);
+}
+
+#app {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+a {
+  text-decoration: none;
+  color: var(--text-color-primary);
+}
+
+/* Element Plus Overrides */
+.el-menu {
+  border-right: none !important; /* Remove default border */
+}
+
+/* Default menu hover for light theme (if any other menu exists) */
+.el-menu-item:hover {
+  background-color: #f5f7fa !important;
+}
+
+/* Scoped overrides for the dark sidebar menu */
+.sidebar-container .el-menu {
+  background-color: var(--sidebar-bg-color) !important;
+}
+
+.sidebar-container .el-menu-item,
+.sidebar-container .el-sub-menu__title {
+  color: var(--sidebar-menu-text-color) !important;
+}
+
+.sidebar-container .el-menu-item:hover,
+.sidebar-container .el-sub-menu__title:hover {
+  background-color: var(--sidebar-menu-hover-bg-color) !important;
+}
+
+.sidebar-container .el-menu-item.is-active {
+  color: var(--sidebar-menu-active-text-color) !important;
+}
+
+.sidebar-container .el-menu .el-sub-menu .el-menu {
+  background-color: var(--sidebar-submenu-bg-color) !important;
+}
