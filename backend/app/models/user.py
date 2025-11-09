@@ -14,12 +14,21 @@ from enum import Enum
 from app.core.password import get_password_hash
 # 导入已定义的关联表
 from app.models.subject import user_subject
+from app.models.assignment import UserAssignment
 from app.models.class_model import class_student
 
 if TYPE_CHECKING:
     from app.models.class_model import Class
     from app.models.question import Question
-    from app.models.assignment import Assignment, StudentAssignment
+
+def _load_knowledge_point():
+    from app.models.knowledge import KnowledgePoint
+    return KnowledgePoint
+
+def _load_tag():
+    from app.models.subject import Tag
+    return Tag
+
 
 # 修正表名引用
 user_role_table = Table(
@@ -99,14 +108,14 @@ class User(Base):
     # 关联关系
     subjects = relationship("Subject", secondary=user_subject, back_populates="teachers")
     # 知识点关系
-    created_knowledge_points = relationship("KnowledgePoint", back_populates="creator")
+    created_knowledge_points = relationship(_load_knowledge_point, back_populates="creator")
     # 添加这两个关系属性
     teaching_classes = relationship(
         "Class", 
         back_populates="teacher",
         foreign_keys="Class.teacher_id"
     )
-    created_tags = relationship("Tag", back_populates="creator")
+    created_tags = relationship(_load_tag, back_populates="creator")
     enrolled_classes = relationship(
         "Class",
         secondary=class_student,  # 使用导入的 class_student
@@ -121,7 +130,7 @@ class User(Base):
     )
     
     user_assignments = relationship(
-        "UserAssignment",
+        UserAssignment,
         back_populates="user",
         cascade="all, delete-orphan"
     )

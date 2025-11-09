@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.question import Question
     from app.models.class_model import Class
+    from app.models.knowledge import KnowledgePoint
 
 # 关联表：作业和问题 (多对多)
 assignment_question_table = Table(
@@ -49,6 +50,10 @@ class UserAssignmentStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     SUBMITTED = "submitted"
     GRADED = "graded"
+
+def _load_knowledge_point():
+    from app.models.knowledge import KnowledgePoint
+    return KnowledgePoint
 
 class Assignment(Base):
     """作业/试卷模型"""
@@ -89,11 +94,7 @@ class Assignment(Base):
     )
 
     knowledge_point_id: Mapped[int] = mapped_column(ForeignKey("knowledge_points.id"), comment="知识点ID")
-    knowledge_point = relationship(
-        "KnowledgePoint", 
-        foreign_keys=[knowledge_point_id],
-        back_populates="assignments"
-    )
+    knowledge_point = relationship(_load_knowledge_point, back_populates="assignments")
 
     def __repr__(self) -> str:
         return f"<Assignment(id={self.id}, title='{self.title}')>"

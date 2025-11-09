@@ -48,9 +48,19 @@ class QuestionUpdate(BaseModel):
     source: Optional[str] = Field(None, max_length=255, description="题目来源")
     status: Optional[QuestionStatus] = Field(None, description="题目状态")
     subject_id: Optional[int] = Field(None, description="学科 ID")
-    knowledge_point_ids: Optional[List[int]] = Field(None, description="知识点 ID 列表")
+    knowledge_points: Optional[List[int]] = Field(None, description="知识点 ID 列表")
 
 # --- 用于响应的模型 ---
+class KnowledgePointResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    subject_id: int
+    creator_id: int
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
 class QuestionResponse(QuestionBase):
     """用于 API 响应的 Pydantic 模型"""
     id: int
@@ -59,7 +69,7 @@ class QuestionResponse(QuestionBase):
     updated_at: datetime
     answer: Dict[str, Any]  # 保持类型一致性
     # 调整为字典列表，匹配 Neo4j 返回
-    knowledge_points: List[Dict[str, Any]] = Field(default_factory=list, description="知识点列表")
+    knowledge_points: List[KnowledgePointResponse] = Field(default_factory=list, description="知识点列表")
     source: Optional[str] = Field(None, max_length=255, description="题目来源")
     status: QuestionStatus
     model_config = ConfigDict(from_attributes=True)

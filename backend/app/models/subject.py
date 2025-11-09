@@ -36,6 +36,7 @@ class Subject(Base):
     questions = relationship("Question", back_populates="subject", cascade="all, delete-orphan")
     books=relationship("Book", back_populates="subject")
     tags = relationship("Tag", back_populates="subject", cascade="all, delete-orphan")
+    knowledge_points = relationship("KnowledgePoint", back_populates="subject", cascade="all, delete-orphan")
 
 class Tag(Base):
     """标签模型"""

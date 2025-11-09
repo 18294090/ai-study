@@ -7,12 +7,20 @@ import aiofiles
 import uuid
 import pandas as pd
 import io
+import os
+import tempfile
+from pathlib import Path
+
 from app.db.session import get_db
-from app.models.question import Question
+from app.models.question import Question, QuestionComment
 from app.schemas.question import QuestionCreate, QuestionResponse, CommentCreate, QuestionUpdate
 from app.core.auth import get_current_user, get_current_active_user
 from app.core.permissions import teacher_required  
 from app.models.user import User
+from app.models.knowledge import KnowledgePoint
+
+# 导入exam_parser
+from app.services.exam_parser import parse_pdf, parse_docx, parse_image
 
 router = APIRouter()
 
@@ -32,7 +40,7 @@ async def get_questions(
     query = select(Question)
 
     if knowledge_point_id:
-        query = query.filter(Question.knowledge_point_id == knowledge_point_id)
+        query = query.filter(Question.knowledge_points.any(KnowledgePoint.id == knowledge_point_id))
     if difficulty:
         query = query.filter(Question.difficulty == difficulty)
     if subject_id:
@@ -87,8 +95,7 @@ async def search_questions(
 ):
     """获取题目列表，支持筛选和分页"""
     query = select(Question)
-    filters = []
-    
+    filters = []    
     if keyword:
         filters.append(
             or_(
@@ -99,7 +106,7 @@ async def search_questions(
     if subject_id:
         filters.append(Question.subject_id == subject_id)
     if knowledge_point_id:
-        filters.append(Question.knowledge_point_id == knowledge_point_id)
+        filters.append(Question.knowledge_points.any(KnowledgePoint.id == knowledge_point_id))
     if difficulty:
         filters.append(Question.difficulty == difficulty)
     
@@ -111,36 +118,102 @@ async def search_questions(
     result = await db.execute(query)
     return result.scalars().all()
 
-def process_questions_import(df: pd.DataFrame, user_id: int, db: AsyncSession):
-    # 这是一个后台任务的示例实现，您需要根据实际情况填充逻辑
-    print(f"Processing import for user {user_id}...")
-    # for index, row in df.iterrows():
-    #     ... create question object and add to db session ...
-    # db.commit()
-    print("Import finished.")
+async def process_file_import(file_path: str, file_type: str, user_id: int, subject_id: Optional[int], db: AsyncSession):
+    """处理文件导入的后台任务"""
+    img_dir = None
+    try:
+        print(f"Processing {file_type} import for user {user_id}...")
+        
+        # 创建临时图片目录
+        import tempfile
+        img_dir = tempfile.mkdtemp(prefix="exam_parser_")
+        
+        # 根据文件类型调用相应的解析器
+        if file_type == 'pdf':
+            questions = parse_pdf(file_path, img_dir)
+        elif file_type in ['docx', 'doc']:
+            questions = parse_docx(file_path, img_dir)
+        elif file_type in ['png', 'jpg', 'jpeg']:
+            questions = parse_image(file_path, img_dir)
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
+        
+        # 将解析的题目存储到数据库
+        created_questions = []
+        for parsed_question in questions:
+            # 转换为QuestionCreate格式
+            question_data = parsed_question.to_question_create_dict()
+            question_data['author_id'] = user_id
+            question_data['subject_id'] = subject_id
+            
+            # 创建题目对象
+            db_question = Question(**question_data)
+            db.add(db_question)
+            created_questions.append(db_question)
+        
+        await db.commit()
+        
+        # 刷新所有创建的题目以获取ID等
+        for q in created_questions:
+            await db.refresh(q)
+        
+        print(f"Successfully imported {len(created_questions)} questions from {file_type} file.")        
+    except Exception as e:
+        print(f"Error processing file import: {str(e)}")
+        await db.rollback()
+        raise
+    finally:
+        # 清理临时文件和目录
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        if img_dir and os.path.exists(img_dir):
+            import shutil
+            shutil.rmtree(img_dir)
 
 @router.post("/batch-import")
 async def batch_import_questions(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    subject_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(teacher_required)
 ):
-    """批量导入题目"""
-    if not file.filename.endswith('.xlsx'):
-        raise HTTPException(status_code=400, detail="只允许上传Excel文件")
+    """批量导入题目,接收pdf，word，图片文件"""
+    # 检查文件类型
+    allowed_extensions = ['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg']
+    file_ext = Path(file.filename).suffix.lower()
     
-    content = await file.read()
-    df = pd.read_excel(io.BytesIO(content))
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"只允许上传以下格式的文件: {', '.join(allowed_extensions)}"
+        )
     
-    # 在后台任务中处理导入，确保处理富文本内容
+    # 保存上传的文件到临时位置
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+        content = await file.read()
+        temp_file.write(content)
+        temp_file_path = temp_file.name
+    
+    # 确定文件类型
+    if file_ext == '.pdf':
+        file_type = 'pdf'
+    elif file_ext in ['.docx', '.doc']:
+        file_type = 'docx' if file_ext == '.docx' else 'doc'
+    else:
+        file_type = 'image'
+    
+    # 在后台任务中处理导入
     background_tasks.add_task(
-        process_questions_import, 
-        df, 
-        current_user.id, 
+        process_file_import, 
+        temp_file_path,
+        file_type,
+        current_user.id,
+        subject_id,
         db
     )
-    return {"message": "导入已开始", "status": "processing"}
+    
+    return {"message": f"{file.filename} 导入已开始", "status": "processing"}
 
 @router.post("/{question_id}/comments")
 async def add_comment(

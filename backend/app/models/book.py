@@ -18,3 +18,4 @@ class Book(Base):
     subject = relationship("Subject", back_populates="books")
     chunks = relationship("DocumentChunk", back_populates="book")  # 关联切片
 
+

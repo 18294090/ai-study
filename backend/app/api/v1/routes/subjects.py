@@ -7,6 +7,8 @@ from app.models.subject import Subject
 from app.schemas.subject import SubjectCreate, SubjectUpdate, SubjectResponse, SubjectDetailResponse
 from app.core.auth import get_current_user
 from app.models.user import User
+from app.models.knowledge import KnowledgePoint
+from app.schemas.knowledge import KnowledgePointCreate, KnowledgePointResponse
 
 router = APIRouter()
 
@@ -166,12 +168,75 @@ async def get_subject_recommendations(
         )    
     # 分析用户薄弱知识点
     weak_points = await analyze_weak_points(subject_id, current_user.id, db)
-    # 生成学习建议
     recommendations = await generate_learning_recommendations(
-        subject_id, 
+        subject_id,
         current_user.id,
         weak_points,
         db
     )
     return recommendations
 
+@router.get("/{subject_id}/knowledge-points")
+async def get_knowledge_points(
+    subject_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取学科的知识点"""
+    # 验证学科属于当前用户
+    subject_query = select(Subject).where(
+        Subject.id == subject_id,
+        Subject.user_id == current_user.id
+    )
+    subject_result = await db.execute(subject_query)
+    subject = subject_result.scalar_one_or_none()
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="学科不存在或您没有权限访问"
+        )
+    # 获取知识点
+    query = select(KnowledgePoint).where(KnowledgePoint.subject_id == subject_id)
+    result = await db.execute(query)
+    knowledge_points = result.scalars().all()    
+    return knowledge_points
+
+@router.post("/{subject_id}/knowledge-points", response_model=KnowledgePointResponse)
+async def create_knowledge_point(
+    subject_id: int,
+    knowledge_point: KnowledgePointCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """创建知识点"""
+    # 验证学科属于当前用户
+    subject_query = select(Subject).where(
+        Subject.id == subject_id,
+        Subject.user_id == current_user.id
+    )
+    subject_result = await db.execute(subject_query)
+    subject = subject_result.scalar_one_or_none()
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="学科不存在或您没有权限访问"
+        )
+    # 创建知识点
+    db_knowledge_point = KnowledgePoint(
+        **knowledge_point.dict(),
+        subject_id=subject_id,
+        creator_id=current_user.id
+    )
+    db.add(db_knowledge_point)
+    await db.commit()
+    await db.refresh(db_knowledge_point)
+    # 同步到 Neo4j
+    # 假设有 neo4j_driver
+    # await neo4j_driver.execute_query(
+    #     "CREATE (kp:KnowledgePoint {id: $id, name: $name, description: $description, subject_id: $subject_id})",
+    #     id=db_knowledge_point.id,
+    #     name=db_knowledge_point.name,
+    #     description=db_knowledge_point.description,
+    #     subject_id=subject_id
+    # )
+    return db_knowledge_point

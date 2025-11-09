@@ -81,7 +81,6 @@ class Question(Base):
     # --- 教学与分析信息 ---
     difficulty: Mapped[int] = mapped_column(Integer, comment="难度等级")
     tags: Mapped[List[str]] = mapped_column(JSON, comment="标签列表")
-    knowledge_points: Mapped[Optional[List[str]]] = mapped_column(JSON, comment="关联知识点")
     subject_id: Mapped[Optional[int]] = mapped_column(ForeignKey("subjects.id"), comment="所属科目ID")
     subject = relationship("Subject", back_populates="questions")
     # --- 管理与追踪信息 ---
@@ -110,7 +109,7 @@ class Question(Base):
     # 关系：问题的评论
     comments = relationship("QuestionComment", back_populates="question", cascade="all, delete-orphan")
     # 关系：问题的标签
-    tags = relationship("Tag", secondary=question_tags, back_populates="questions", lazy="selectin")  # 添加 lazy="selectin" 以预加载
+    tags = relationship("Tag", secondary=question_tags, back_populates="questions", lazy="selectin")  # 添加 lazy="selectin" 以预加载标签
     def __repr__(self) -> str:
         return f"<Question(id={self.id}, title='{self.title}')>"
 
@@ -126,6 +125,3 @@ class QuestionComment(Base):
     question = relationship("Question", back_populates="comments")
     # 关系：评论的作者
     user = relationship("User", back_populates="comments")
-
-
-
