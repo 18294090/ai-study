@@ -42,12 +42,12 @@ async def register(
             detail="Email already registered"
         )
     
-    # 创建新用户，默认使用STUDENT角色
+    # 创建新用户，默认使用USER角色
     db_user = User(
         email=user_create.email,
         username=user_create.username,
         hashed_password=get_password_hash(user_create.password),
-        role=UserRole.STUDENT  # 使用STUDENT作为默认角色
+        role=UserRole.USER  # 使用USER作为默认角色
     )
     db.add(db_user)
     await db.commit()

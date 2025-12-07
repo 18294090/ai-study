@@ -449,22 +449,34 @@ def _parse_pdf_doc(
     source_title = ""
     if per_page:
         first_entries = cast(List[Dict[str, Any]], per_page[0].get("line_entries", []))
-        title_candidates: List[Tuple[float, str]] = []
-        for entry in first_entries[:10]:
-            text_val = normalize_text(entry.get("text", ""))
-            if not text_val:
-                continue
-            size_val = 0.0
-            try:
-                size_val = float(entry.get("size", 0.0) or 0.0)
-            except Exception:
+        if first_entries:
+            # 优先检查第一行，如果字体较大，则用作标题
+            first_entry = first_entries[0]
+            first_text = normalize_text(first_entry.get("text", ""))
+            first_size = float(first_entry.get("size", 0.0) or 0.0)
+            all_sizes = [float(entry.get("size", 0.0) or 0.0) for entry in first_entries if entry.get("text", "").strip()]
+            if all_sizes:
+                max_size = max(all_sizes)
+                if first_size >= max_size - 1.0 and first_text:
+                    source_title = first_text
+        if not source_title:
+            # 回退到原有逻辑
+            title_candidates: List[Tuple[float, str]] = []
+            for entry in first_entries[:10]:
+                text_val = normalize_text(entry.get("text", ""))
+                if not text_val:
+                    continue
                 size_val = 0.0
-            title_candidates.append((size_val, text_val))
-        if title_candidates:
-            max_size = max(size for size, _ in title_candidates)
-            prominent = [text for size, text in title_candidates if size >= max_size - 1.0]
-            prioritized = next((t for t in prominent if any(key in t for key in ["试题卷", "试卷", "试题"])), None)
-            source_title = prioritized or prominent[0]
+                try:
+                    size_val = float(entry.get("size", 0.0) or 0.0)
+                except Exception:
+                    size_val = 0.0
+                title_candidates.append((size_val, text_val))
+            if title_candidates:
+                max_size = max(size for size, _ in title_candidates)
+                prominent = [text for size, text in title_candidates if size >= max_size - 1.0]
+                prioritized = next((t for t in prominent if any(key in t for key in ["试题卷", "试卷", "试题"])), None)
+                source_title = prioritized or prominent[0]
     if not source_title:
         try:
             page0_text = cast(str, doc.load_page(0).get_text("text") or "")

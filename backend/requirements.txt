@@ -10,6 +10,7 @@ pandas
 openpyxl
 networkx
 python-multipart
+pytest
 langchain
 langchain-community
 pypdf

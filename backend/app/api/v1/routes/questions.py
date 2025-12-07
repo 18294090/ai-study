@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
-
 from typing import List, Optional
 import aiofiles
 import uuid
@@ -10,19 +9,40 @@ import io
 import os
 import tempfile
 from pathlib import Path
-
 from app.db.session import get_db
 from app.models.question import Question, QuestionComment
 from app.schemas.question import QuestionCreate, QuestionResponse, CommentCreate, QuestionUpdate
 from app.core.auth import get_current_user, get_current_active_user
-from app.core.permissions import teacher_required  
+from app.core.permissions import user_required  
 from app.models.user import User
 from app.models.knowledge import KnowledgePoint
-
 # 导入exam_parser
 from app.services.exam_parser import parse_pdf, parse_docx, parse_image
+# 导入向量化服务
+from app.services.question_vectorization import vectorize_questions_batch, search_similar_questions
+from app.models.VectorStore import QuestionVectorResponse
 
 router = APIRouter()
+
+@router.get("/public", response_model=List[QuestionResponse])
+async def get_public_questions(
+    subject_id: Optional[int] = None,
+    difficulty: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取公开题目列表（不需要认证）"""
+    query = select(Question).filter(Question.status == "active")  # 只返回已发布的题目
+    
+    if difficulty:
+        query = query.filter(Question.difficulty == difficulty)
+    if subject_id:
+        query = query.filter(Question.subject_id == subject_id)
+    
+    result = await db.execute(query.offset(skip).limit(limit))
+    questions = result.scalars().all()
+    return questions
 
 @router.get("/", response_model=List[QuestionResponse])
 async def get_questions(
@@ -38,7 +58,6 @@ async def get_questions(
 ):
     """获取题目列表，支持筛选和分页"""
     query = select(Question)
-
     if knowledge_point_id:
         query = query.filter(Question.knowledge_points.any(KnowledgePoint.id == knowledge_point_id))
     if difficulty:
@@ -54,7 +73,6 @@ async def get_questions(
                 Question.content.ilike(f"%{keyword}%")
             )
         )
-    
     result = await db.execute(query.offset(skip).limit(limit))
     questions = result.scalars().all()
     return questions
@@ -109,10 +127,8 @@ async def search_questions(
         filters.append(Question.knowledge_points.any(KnowledgePoint.id == knowledge_point_id))
     if difficulty:
         filters.append(Question.difficulty == difficulty)
-    
     if filters:
-        query = query.filter(and_(*filters))
-    
+        query = query.filter(and_(*filters))    
     # 分页
     query = query.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(query)
@@ -122,51 +138,87 @@ async def process_file_import(file_path: str, file_type: str, user_id: int, subj
     """处理文件导入的后台任务"""
     img_dir = None
     try:
-        print(f"Processing {file_type} import for user {user_id}...")
+        print(f"Processing {file_type} import for user {user_id}...")        
+        # 使用backend/uploads目录保存图片
+        import os
+        from pathlib import Path
+        uploads_dir = Path(__file__).parent.parent.parent / "uploads"
+        uploads_dir.mkdir(exist_ok=True)
         
-        # 创建临时图片目录
-        import tempfile
-        img_dir = tempfile.mkdtemp(prefix="exam_parser_")
-        
+        # 创建以用户ID和时间戳命名的子目录
+        import time
+        timestamp = int(time.time())
+        img_dir = uploads_dir / f"user_{user_id}_{timestamp}"
+        img_dir.mkdir(exist_ok=True)        
         # 根据文件类型调用相应的解析器
         if file_type == 'pdf':
-            questions = parse_pdf(file_path, img_dir)
+            questions = parse_pdf(file_path, str(img_dir))
         elif file_type in ['docx', 'doc']:
-            questions = parse_docx(file_path, img_dir)
+            questions = parse_docx(file_path, str(img_dir))
         elif file_type in ['png', 'jpg', 'jpeg']:
-            questions = parse_image(file_path, img_dir)
+            questions = parse_image(file_path, str(img_dir))
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
         
-        # 将解析的题目存储到数据库
-        created_questions = []
-        for parsed_question in questions:
-            # 转换为QuestionCreate格式
-            question_data = parsed_question.to_question_create_dict()
-            question_data['author_id'] = user_id
-            question_data['subject_id'] = subject_id
+        # 处理题目内容中的图片路径
+        for question in questions:
+            if question.配图:  # 配图是图片路径列表
+                # 将绝对路径转换为相对路径（相对于uploads目录）
+                relative_images = []
+                for img_path in question.配图:
+                    if os.path.isabs(img_path):
+                        # 转换为相对于uploads目录的路径
+                        try:
+                            img_path_obj = Path(img_path)
+                            relative_path = img_path_obj.relative_to(uploads_dir)
+                            relative_images.append(f"/uploads/{relative_path}")
+                        except ValueError:
+                            # 如果无法转换为相对路径，保持原路径
+                            relative_images.append(img_path)
+                    else:
+                        relative_images.append(f"/uploads/{img_path}")
+                question.配图 = relative_images
             
-            # 创建题目对象
-            db_question = Question(**question_data)
-            db.add(db_question)
-            created_questions.append(db_question)
+            # 同时更新content中的图片路径
+            if question.内容 and '<img src=' in question.内容:
+                import re
+                def replace_img_src(match):
+                    src = match.group(1)
+                    if os.path.isabs(src):
+                        try:
+                            src_obj = Path(src)
+                            relative_path = src_obj.relative_to(uploads_dir)
+                            return f"<img src='/uploads/{relative_path}'>"
+                        except ValueError:
+                            return match.group(0)
+                    else:
+                        return f"<img src='/uploads/{src}'>"
+                
+                question.内容 = re.sub(r"<img src='([^']+)'", replace_img_src, question.内容)
+                question.内容 = re.sub(r'<img src="([^"]+)"', replace_img_src, question.内容)
+        
+        # 将解析的题目进行向量化并存储到向量数据库
+        question_vectors = await vectorize_questions_batch(
+            parsed_questions=questions,
+            user_id=user_id,
+            subject_id=subject_id,
+            db=db
+        )
         
         await db.commit()
         
-        # 刷新所有创建的题目以获取ID等
-        for q in created_questions:
-            await db.refresh(q)
-        
-        print(f"Successfully imported {len(created_questions)} questions from {file_type} file.")        
+        print(f"Successfully vectorized and imported {len(question_vectors)} questions from {file_type} file.")        
     except Exception as e:
         print(f"Error processing file import: {str(e)}")
         await db.rollback()
         raise
     finally:
-        # 清理临时文件和目录
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        if img_dir and os.path.exists(img_dir):
+        # 清理上传的临时文件，但保留uploads目录中的图片
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass  # 忽略删除失败的错误
             import shutil
             shutil.rmtree(img_dir)
 
@@ -176,7 +228,7 @@ async def batch_import_questions(
     file: UploadFile = File(...),
     subject_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(teacher_required)
+    current_user = Depends(get_current_active_user)  # 临时改为普通用户权限
 ):
     """批量导入题目,接收pdf，word，图片文件"""
     # 检查文件类型
@@ -284,3 +336,43 @@ async def get_question(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
     return question
+
+@router.get("/vector/search", response_model=List[QuestionVectorResponse])
+async def search_question_vectors(
+    query: str = Query(..., description="搜索查询"),
+    subject_id: Optional[int] = None,
+    limit: int = Query(10, ge=1, le=50, description="返回结果数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_active_user)
+):
+    """语义搜索试题向量"""
+    try:
+        similar_questions = await search_similar_questions(
+            query=query,
+            user_id=current_user.id,
+            subject_id=subject_id,
+            limit=limit,
+            db=db
+        )
+        
+        # 转换为响应格式
+        results = []
+        for q in similar_questions:
+            results.append(QuestionVectorResponse(
+                id=q.id,
+                content=q.content,
+                embedding=[],  # 不返回向量数据
+                title=q.title,
+                question_type=q.question_type,
+                difficulty=q.difficulty,
+                source=q.source,
+                subject_id=q.subject_id,
+                user_id=q.user_id,
+                tags=q.tags,
+                created_at=q.created_at
+            ))
+        
+        return results
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")

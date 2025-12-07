@@ -1,26 +1,29 @@
-# 知识点模型
-from importlib import resources
-import resource
-from sqlalchemy import Integer, String, Text, ForeignKey
-from sqlalchemy.orm import relationship, Mapped, mapped_column
-from app.db.base import Base
-from typing import Optional
-from app.models.question import question_knowledge_point
+"""向后兼容的知识点模块。
 
-class KnowledgePoint(Base):
-    __tablename__ = "knowledge_points"
+系统已经将知识点相关模型迁移到 ``app.models.knowledge_point`` 中。
+为避免大规模修改旧代码，本模块仅导出该文件中的模型，
+新功能请直接引用 ``app.models.knowledge_point``。
+"""
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id"), nullable=False)
-    creator_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    # 关系
-    creator = relationship("User", back_populates="created_knowledge_points")
-    subject = relationship("Subject", back_populates="knowledge_points")
-    # 添加缺失的relationship
-    assignments = relationship("Assignment", back_populates="knowledge_point", cascade="all, delete-orphan")    
-    # 添加缺失的relationship
-    questions = relationship("Question", secondary=question_knowledge_point, back_populates="knowledge_points")
-    resources = relationship("Resource", back_populates="knowledge_point", cascade="all, delete-orphan")
+from app.models.knowledge_point import (  # noqa: F401
+    KnowledgePoint,
+    KnowledgePointVersion,
+    KnowledgePointRelationship,
+    KnowledgePointAuditLog,
+    TextbookVersion,
+    TextbookMapping,
+    knowledge_point_textbook_version,
+    knowledge_point_closure,
+)
+
+__all__ = [
+    "KnowledgePoint",
+    "KnowledgePointVersion",
+    "KnowledgePointRelationship",
+    "KnowledgePointAuditLog",
+    "TextbookVersion",
+    "TextbookMapping",
+    "knowledge_point_textbook_version",
+    "knowledge_point_closure",
+]
 

@@ -1,6 +1,6 @@
 # 文档切分服务,切片教材和试卷
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader, PyMuPDFLoader
 from langchain_community.document_loaders import TextLoader
 from langchain_community.document_loaders import UnstructuredWordDocumentLoader  # 添加 DOC 加载器
 from langchain_community.document_loaders import UnstructuredMarkdownLoader  # 添加 Markdown 加载器
@@ -20,16 +20,25 @@ def split_exam_paper(file_path: str, separators: List[str] = None) -> List[Docum
         separators = [r'\n\d+\.', r'\n\d+\）', r'\n\d+\s']  # 默认分隔符：1. 1）等    
     # 加载文档
     if file_path.endswith('.pdf'):
-        loader = PyPDFLoader(file_path)
+        try:
+            loader = PyMuPDFLoader(file_path)
+            documents = loader.load()
+        except Exception as e:
+            print(f"PyMuPDFLoader failed, trying PyPDFLoader: {e}")
+            loader = PyPDFLoader(file_path)
+            documents = loader.load()
     elif file_path.endswith('.txt'):
         loader = TextLoader(file_path)
+        documents = loader.load()
     elif file_path.endswith('.md'):
         loader = UnstructuredMarkdownLoader(file_path)
+        documents = loader.load()
     elif file_path.endswith('.doc') or file_path.endswith('.docx'):
         loader = UnstructuredWordDocumentLoader(file_path)
+        documents = loader.load()
     else:
         raise ValueError("不支持的文件格式")
-    documents = loader.load()
+    
     split_docs = []
     for doc in documents:
         text = doc.page_content

@@ -205,7 +205,7 @@ async def get_current_user(
         user_id = int(token_sub)
             
         token_type = payload.get("type")
-        if token_type != "access":
+        if token_type != "access_token":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="无效的令牌类型",
@@ -241,9 +241,9 @@ async def get_current_user(
             detail="认证过程中发生错误"
         )
 def get_current_active_user(
-    current_user: Any = Security(get_current_user, scopes=["user"])
+    current_user: Any = Depends(get_current_user)
 ) -> Any:
-    """获取当前活跃用户（带基本用户权限）
+    """获取当前活跃用户（已认证用户）
     
     参数:
         current_user: 当前认证用户

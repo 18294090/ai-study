@@ -9,6 +9,10 @@ from app.core.auth import get_current_user
 from app.models.user import User
 from app.models.knowledge import KnowledgePoint
 from app.schemas.knowledge import KnowledgePointCreate, KnowledgePointResponse
+from app.utils.knowledge_point_identifiers import (
+    generate_knowledge_point_code,
+    generate_knowledge_point_slug,
+)
 
 router = APIRouter()
 
@@ -65,23 +69,24 @@ async def get_subject(
     current_user: User = Depends(get_current_user)
 ):
     """获取学科详情"""
-    query = select(Subject).where(
-        Subject.id == subject_id,
-        Subject.user_id == current_user.id
-    )
+    # 检查用户是否是学科成员（所有者或已加入成员）
+    from app.core.permissions import check_subject_member
+    await check_subject_member(subject_id, current_user, db)
+
+    query = select(Subject).where(Subject.id == subject_id)
     result = await db.execute(query)
     subject = result.scalar_one_or_none()
-    
+
     if not subject:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在或您没有权限访问"
+            detail="学科不存在"
         )
-    
+
     # 获取知识点数量
     count_query = select(func.count()).where(KnowledgePoint.subject_id == subject_id)
     knowledge_points_count = await db.scalar(count_query) or 0
-    
+
     # 构建响应
     return {
         **subject.__dict__,
@@ -101,24 +106,25 @@ async def update_subject(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="请求体不能为空"
         )
-    
-    query = select(Subject).where(
-        Subject.id == subject_id,
-        Subject.user_id == current_user.id
-    )
+
+    # 检查用户是否是学科所有者
+    from app.core.permissions import check_subject_owner
+    await check_subject_owner(subject_id, current_user, db)
+
+    query = select(Subject).where(Subject.id == subject_id)
     result = await db.execute(query)
     db_subject = result.scalar_one_or_none()
-    
+
     if not db_subject:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在或您没有权限访问"
+            detail="学科不存在"
         )
-    
+
     # 更新学科
     for key, value in subject_update.dict(exclude_unset=True).items():
         setattr(db_subject, key, value)
-    
+
     await db.commit()
     await db.refresh(db_subject)
     return db_subject
@@ -130,19 +136,20 @@ async def delete_subject(
     current_user: User = Depends(get_current_user)
 ):
     """删除学科"""
-    query = select(Subject).where(
-        Subject.id == subject_id,
-        Subject.user_id == current_user.id
-    )
+    # 检查用户是否是学科所有者
+    from app.core.permissions import check_subject_owner
+    await check_subject_owner(subject_id, current_user, db)
+
+    query = select(Subject).where(Subject.id == subject_id)
     result = await db.execute(query)
     db_subject = result.scalar_one_or_none()
-    
+
     if not db_subject:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在或您没有权限访问"
+            detail="学科不存在"
         )
-    
+
     # 删除学科
     await db.delete(db_subject)
     await db.commit()
@@ -224,6 +231,8 @@ async def create_knowledge_point(
     # 创建知识点
     db_knowledge_point = KnowledgePoint(
         **knowledge_point.dict(),
+        code=generate_knowledge_point_code(subject_id),
+        slug=generate_knowledge_point_slug(knowledge_point.name, subject_id),
         subject_id=subject_id,
         creator_id=current_user.id
     )

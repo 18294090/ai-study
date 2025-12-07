@@ -7,6 +7,10 @@ from app.models.knowledge_point import (
 )
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from app.utils.knowledge_point_identifiers import (
+    generate_knowledge_point_code,
+    generate_knowledge_point_slug,
+)
 
 async def create_knowledge_point(
     session: AsyncSession,
@@ -20,12 +24,86 @@ async def create_knowledge_point(
     """
     # 移除 kwargs 中的 subject_id 和 subject，以避免冲突
     kwargs.pop('subject_id', None)
-    kwargs.pop('subject', None)    
-    kp = KnowledgePoint(name=name, subject_id=subject_id, parent_id=parent_id,creator_id= **kwargs)
+    kwargs.pop('subject', None)
+    creator_id = kwargs.pop('creator_id', None)
+    if creator_id is None:
+        raise ValueError("creator_id is required to create a knowledge point")
+    code = kwargs.pop('code', generate_knowledge_point_code(subject_id))
+    slug = kwargs.pop('slug', generate_knowledge_point_slug(name, subject_id))
+    kp = KnowledgePoint(
+        name=name,
+        code=code,
+        slug=slug,
+        subject_id=subject_id,
+        parent_id=parent_id,
+        creator_id=creator_id,
+        **kwargs,
+    )
     session.add(kp)
     await session.flush()  # 触发 after_insert 事件，确保 kp.id 可用
     await session.refresh(kp)
     return kp
+
+
+async def add_closure_for_insert(
+    session: AsyncSession, node_id: int, parent_id: Optional[int]
+) -> None:
+    """在插入新节点后，维护闭包表以及节点的 path/depth。
+
+    - 永远插入 self->self(depth=0)
+    - 若有父节点：
+        - 复制父节点所有祖先关系，形成这些祖先到新节点的关系，depth 逐级 +1
+        - 插入 parent -> node depth=1
+        - 同时更新新节点的 path、depth
+    - 若无父节点：path=自身id，depth=1
+    """
+    # 确保节点存在
+    kp = await session.get(KnowledgePoint, node_id)
+    if not kp:
+        raise ValueError(f"知识点 {node_id} 不存在")
+
+    # 1) 插入 self 关系
+    await session.execute(
+        insert(knowledge_point_closure).values(
+            ancestor_id=node_id, descendant_id=node_id, depth=0
+        )
+    )
+
+    # 2) 有父节点则继承祖先关系
+    if parent_id is not None:
+        # 取父节点的所有祖先（包含父->父 depth=0）
+        stmt = select(
+            knowledge_point_closure.c.ancestor_id,
+            knowledge_point_closure.c.depth,
+        ).where(knowledge_point_closure.c.descendant_id == parent_id)
+        res = await session.execute(stmt)
+        rows = res.fetchall()
+        # 插入每个祖先到新节点的关系，depth+1
+        batch = [
+            {
+                "ancestor_id": anc,
+                "descendant_id": node_id,
+                "depth": int(d) + 1,
+            }
+            for (anc, d) in rows
+        ]
+        if batch:
+            await session.execute(insert(knowledge_point_closure), batch)
+
+        # 更新 path/depth：基于父节点
+        parent = await session.get(KnowledgePoint, parent_id)
+        if parent:
+            kp.depth = (parent.depth or 0) + 1
+            if parent.path:
+                kp.path = f"{parent.path}/{kp.id}"
+            else:
+                kp.path = f"{parent.id}/{kp.id}"
+    else:
+        # 根节点
+        kp.depth = 1
+        kp.path = str(kp.id)
+
+    await session.flush()
 
 async def _get_descendant_ids(session: AsyncSession, node_id: int) -> List[int]:
     stmt = select(knowledge_point_closure.c.descendant_id).where(
@@ -69,6 +147,9 @@ async def move_knowledge_point(
     kp.updated_at = datetime.utcnow()
     await session.flush()  # 触发 before_update/after_update 事件以维护闭包/path/depth
     await session.refresh(kp)
+    # 简化实现：移动后重建整个闭包表，确保数据正确
+    await rebuild_closure(session)
+    await session.flush()
     return kp
 
 

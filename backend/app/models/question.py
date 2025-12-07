@@ -6,18 +6,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 import datetime
 from app.models.subject import Tag, question_tags  # 添加导入以使用 subject.py 中的 Tag 类和 question_tags
-
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.assignment import Assignment
-
+    from app.models.knowledge import KnowledgePoint
 class QuestionType(str, Enum):
     """问题类型"""
     SINGLE_CHOICE = "single_choice"    # 单选题（包括判断题）
     MULTIPLE_CHOICE = "multiple_choice" # 多选题
     FILL_IN_BLANK = "fill_in_blank"    # 填空题
     SHORT_ANSWER = "short_answer"      # 简答题
-
     @classmethod
     def get_display_name(cls, value: str) -> str:
         """获取显示名称"""
@@ -28,13 +26,11 @@ class QuestionType(str, Enum):
             cls.SHORT_ANSWER.value: "简答题"
         }
         return display_names.get(value, value)
-
 class QuestionStatus(str, Enum):
     """问题状态"""
     DRAFT = "draft"  # 草稿
     ACTIVE = "active"  # 已发布
     DEPRECATED = "deprecated"  # 已废弃
-
 # 题目-知识点 关联表
 question_knowledge_point = Table(
     'question_knowledge_point',
@@ -80,7 +76,7 @@ class Question(Base):
     picture: Mapped[Optional[str]] = mapped_column(String(255), comment="题目图片")
     # --- 教学与分析信息 ---
     difficulty: Mapped[int] = mapped_column(Integer, comment="难度等级")
-    tags: Mapped[List[str]] = mapped_column(JSON, comment="标签列表")
+    tags: Mapped[List[str]] = mapped_column(JSON, nullable=False, comment="标签列表")
     subject_id: Mapped[Optional[int]] = mapped_column(ForeignKey("subjects.id"), comment="所属科目ID")
     subject = relationship("Subject", back_populates="questions")
     # --- 管理与追踪信息 ---
@@ -98,6 +94,7 @@ class Question(Base):
     user_answers = relationship(
         "UserAnswer", back_populates="question"
     )
+    knowledge_point_ids: Mapped[List[int]] = mapped_column(JSON, nullable=False, comment="关联知识点ID列表")
     # 关系：问题关联的知识点
     knowledge_points: Mapped[List["KnowledgePoint"]] = relationship(
         "KnowledgePoint",
@@ -109,7 +106,7 @@ class Question(Base):
     # 关系：问题的评论
     comments = relationship("QuestionComment", back_populates="question", cascade="all, delete-orphan")
     # 关系：问题的标签
-    tags = relationship("Tag", secondary=question_tags, back_populates="questions", lazy="selectin")  # 添加 lazy="selectin" 以预加载标签
+    tag_objects = relationship("Tag", secondary=question_tags, back_populates="questions", lazy="selectin")  # 添加 lazy="selectin" 以预加载标签
     def __repr__(self) -> str:
         return f"<Question(id={self.id}, title='{self.title}')>"
 

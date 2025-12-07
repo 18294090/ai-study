@@ -3,13 +3,12 @@ from typing import Optional
 from datetime import datetime
 from enum import Enum
 
-from app.models.user import UserRole
+# from app.models.user import UserRole  # 移除重复导入
 
 class UserRole(str, Enum):
     """用户角色枚举"""
-    ADMIN = "admin"
-    TEACHER = "teacher"
-    STUDENT = "student"
+    USER = "user"        # 普通用户
+    ADMIN = "admin"      # 管理员
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -22,7 +21,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     username: str
     password: str
-    role: UserRole = UserRole.TEACHER  # 设置默认角色
+    role: UserRole = UserRole.USER  # 设置默认角色
 
 class UserResponse(BaseModel):
     id: int

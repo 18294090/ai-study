@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 from contextlib import asynccontextmanager
+from datetime import datetime
 from fastapi import FastAPI, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +17,6 @@ from fastapi_mcp import FastApiMCP
 # 导入所有模型确保它们被注册
 import app.models
 from app.db.neo4j_utils import driver, close_driver
-
 # 配置日志 (在加载配置后立即设置)
 setup_app_logging(config=settings)
 logger = logging.getLogger(__name__)
@@ -35,12 +35,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error during startup: {str(e)}")
         raise    
 
-    # 检查 Neo4j 连接
+    # 检查 Neo4j 连接（如果使用异步驱动）
     try:
-        driver.verify_connectivity()
+        # 如果driver是异步的，使用await
+        # await driver.verify_connectivity()
+        driver.verify_connectivity()  # 假设同步
         logger.info("Neo4j connected")
     except Exception as e:
         logger.error(f"Neo4j connection failed: {e}")
+        # 可以选择不raise，让应用继续运行
 
     yield  # 应用运行    
     close_driver()
@@ -61,7 +64,11 @@ def create_application() -> FastAPI:
         docs_url="/docs" if settings.DOCS_ENABLED else None,
         redoc_url="/redoc" if settings.DOCS_ENABLED else None,
         openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
-        lifespan=lifespan
+        lifespan=lifespan,
+        swagger_ui_parameters={
+            "custom_css_url": "https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.10.3/swagger-ui.css",
+            "custom_js_url": "https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.10.3/swagger-ui-bundle.js"
+        }
     )
     # 设置中间件
     application.add_middleware(
@@ -75,7 +82,7 @@ def create_application() -> FastAPI:
     # 挂载静态文件目录
     uploads_dir = Path(settings.UPLOAD_DIR)
     if not uploads_dir.exists():
-        uploads_dir.mkdir(parents=True)
+        uploads_dir.mkdir(parents=True, exist_ok=True)  # 添加exist_ok=True
     application.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
     # 添加安全中间件（自定义）
     setup_security_middleware(application)    
@@ -99,6 +106,13 @@ def create_application() -> FastAPI:
             "docs": "/docs",
             "status": "/internal/health"
         }
+    
+    # 添加公开的健康检查路由
+    @application.get("/health", include_in_schema=False)
+    async def health_check():
+        """健康检查接口"""
+        return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    
     # 创建并挂载 MCP 服务器
     mcp_server = FastApiMCP(application)
     mcp_server.mount(mount_path="/mcp")

@@ -47,7 +47,7 @@ role_permission_table = Table(
 
 class UserRole(str, Enum):
     """用户角色枚举"""
-    STUDENT = "student"    # 学生
+    USER = "user"        # 普通用户
     ADMIN = "admin"      # 管理员
 
 class User(Base):
@@ -87,7 +87,7 @@ class User(Base):
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     role: Mapped[UserRole] = mapped_column(
         SQLAlchemyEnum(UserRole),
-        default=UserRole.STUDENT,  # 设置默认角色为STUDENT
+        default=UserRole.USER,  # 设置默认角色为USER
         nullable=False
     )
 
@@ -107,6 +107,7 @@ class User(Base):
 
     # 关联关系
     subjects = relationship("Subject", secondary=user_subject, back_populates="teachers")
+    created_subjects = relationship("Subject", back_populates="creator", foreign_keys="Subject.creator_id")
     # 知识点关系
     created_knowledge_points = relationship(_load_knowledge_point, back_populates="creator")
     # 添加这两个关系属性

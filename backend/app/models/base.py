@@ -1,39 +1,38 @@
 # 基础模型
 from datetime import datetime
-from typing import Any, Dict, Optional, Set
+from typing import Any, ClassVar, Dict, Optional, Set
 from sqlalchemy import Column, DateTime, Integer, MetaData, Table
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     MappedColumn,
-    declared_attr,
     mapped_column,
 )
 
 class Base(DeclarativeBase):
-    """
-    SQLAlchemy 声明性基类
-    
-    包含所有模型共享的通用属性和方法
-    """
+    """提供公共字段和自动表名的声明基类。"""
+
+    __abstract__ = True
+    __tablename__: ClassVar[str]
+
     # 声明所有表都应该有的列
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    # 生成 __tablename__ 属性
-    @declared_attr.directive
-    def __tablename__(cls) -> str:
-        """
-        自动生成表名
-        将类名转换为小写下划线形式
-        例如: UserProfile -> user_profile
-        """
-        name = cls.__name__
-        # 将驼峰命名转换为下划线命名
-        return ''.join(
-            ['_' + c.lower() if c.isupper() else c for c in name]
-        ).lstrip('_')
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if "__tablename__" not in cls.__dict__:
+            cls.__tablename__ = cls._camel_to_snake(cls.__name__)
+
+    @staticmethod
+    def _camel_to_snake(name: str) -> str:
+        chars = []
+        for idx, char in enumerate(name):
+            if char.isupper() and idx != 0:
+                chars.append("_")
+            chars.append(char.lower())
+        return "".join(chars)
 
     def dict(self, exclude: Optional[Set[str]] = None) -> Dict[str, Any]:
         """

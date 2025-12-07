@@ -4,6 +4,12 @@ from app.models.base import Base
 from app.models.user import User
 # 导入学科模型
 from app.models.subject import Subject
+# 导入书籍模型
+from app.models.book import Book
+# 导入知识点模型
+from app.models.knowledge import KnowledgePoint
+# 导入向量存储模型
+from app.models.VectorStore import DocumentChunk, QuestionVector
 # 导入知识点和相关资源模型
 from app.models.resource import Resource
 # 导入题目相关模型

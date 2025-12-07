@@ -14,7 +14,7 @@ except Exception:
 
 from ..core import Question
 from ..rules import QUESTION_HEAD_RE, FIGURE_LABEL_RE
-from ..utils import ensure_dir, extract_title_from_text_lines, parse_text_to_questions
+from ..utils import ensure_dir, extract_title_from_text_lines, parse_text_to_questions, normalize_text
 
 
 def iter_docx_body_elements(doc):
@@ -95,7 +95,14 @@ def parse_docx(
     for kind, payload in events:
         if kind == "text":
             page_text_segments.append(str(payload))
-    source_title = extract_title_from_text_lines("\n".join(page_text_segments).splitlines()) or filepath
+    # Extract title as source - prioritize first line
+    full_text = "\n".join(page_text_segments)
+    lines = full_text.splitlines()
+    source_title = ""
+    if lines and lines[0].strip():
+        source_title = normalize_text(lines[0])
+    if not source_title:
+        source_title = extract_title_from_text_lines(lines) or filepath
 
     page_text_segments.clear()
     for kind, payload in events:

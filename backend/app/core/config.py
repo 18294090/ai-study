@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     MEDIA_ROOT: str = str(ROOT_PATH / "media")
     MAX_UPLOAD_SIZE: int = 100  # MB
     
+    # ================== LLM 配置 ==================
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_BASE: Optional[str] = None
+    
     # ================== Neo4j 配置 ==================
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")

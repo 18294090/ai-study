@@ -89,8 +89,13 @@ def parse_image(
 
     raw_text, entries = ocr_image_to_text(filepath, paddle_lang=paddle_lang)
 
-    # Extract title as source
-    title = extract_title_from_text_lines(raw_text.splitlines()) or filepath
+    # Extract title as source - prioritize first line
+    lines = raw_text.splitlines()
+    title = ""
+    if lines and lines[0].strip():
+        title = normalize_text(lines[0])
+    if not title:
+        title = extract_title_from_text_lines(lines) or filepath
 
     if not raw_text.strip() and not entries:
         q = Question(内容="(图片OCR为空)", 来源=title, 题型="未知", 配图=[str(out_path)], 材料="")
