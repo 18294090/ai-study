@@ -1,0 +1,94 @@
+extraction:
+  parsing:
+    parsers: [mineru-2.0, marker, nougat, unimernet, docling]
+    voting_strategy: confidence_weighted
+    low_confidence_threshold: 0.7
+  chunking:
+    strategy: semantic
+    prefer_chapter_boundaries: true
+    overlap_ratio: 0.12
+    max_tokens: 8000
+  contextual_retrieval:
+    enabled: true
+    context_model: claude-haiku-3.5
+    context_max_tokens: 100
+    use_prompt_caching: true
+  chapter_routing:
+    enabled: true
+    classifier_model: claude-haiku-3.5
+    fast_path_signals:
+      - chapter_type: [overview, narrative, conceptual]
+      - formula_density_below: 0.05
+    slow_path_force:
+      - contains_proof: true
+      - contains_theorem_with_conditions: true
+      - contains_counter_example: true
+      - subject: [math, physics, chemistry]
+        and_chapter_type: derivation
+    confidence_threshold: 0.75
+  domain:
+    primary_model: o3
+    verifier_model: claude-3.7-thinking
+    fallback_model: gpt-4o
+    long_context_model: gemini-2.5-pro
+    use_prompt_caching: true
+    structured_output: true
+    max_chunk_tokens: 200000
+  pedagogical:
+    primary_model: claude-3.7
+  skill_mapping:
+    primary_model: o3
+fusion:
+  embedding_model: bge-m3
+  similarity_threshold: 0.85
+  type_constraint: true
+  llm_verifier_model: gpt-4o
+  rerank_model: cohere-rerank-v3
+graph_rag:
+  community_detection: leiden
+  resolution: 1.0
+  summary_levels: [0, 1, 2]
+  summary_model: gpt-4o
+  personalized_pagerank:
+    enabled: true
+    damping_factor: 0.85
+    max_iterations: 20
+    top_n: 30
+link_prediction:
+  enabled: true
+  algorithm: node2vec
+  walk_length: 80
+  walks_per_node: 10
+  embedding_dim: 128
+  prediction_threshold: 0.75
+  target_relations: [prerequisite_of, requires]
+curriculum_alignment:
+  enabled: true
+  standard_source: official_pdf
+  standard_model: claude-3.7
+  standard_id_pattern: "GB-{year}-{subject}-{grade}-{chapter}-{section}"
+  alignment_model: bge-m3
+  alignment_threshold: 0.80
+  double_jian_filter: true
+  wikidata_sync:
+    enabled: true
+    sync_model: gpt-4o-mini
+    fields: [definition, image_url, aliases_zh, related_topics]
+storage:
+  neo4j:
+    uri: ${NEO4J_URI}
+    database: knowledge_graph
+  qdrant:
+    url: ${QDRANT_URL}
+    collection_nodes: kg_nodes
+    collection_summaries: kg_communities
+    collection_chunks: kg_chunks
+eval:
+  dataset_path: eval/kg_extraction_500.jsonl
+  thresholds:
+    precision: 0.80
+    recall: 0.80
+    f1: 0.80
+budget:
+  max_tokens_per_textbook: 5_000_000
+  max_cost_usd_per_textbook: 50

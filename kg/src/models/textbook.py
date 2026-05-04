@@ -1,6 +1,15 @@
+<<<<<<< HEAD
 from pydantic import BaseModel
 from typing import List, Optional
 
+=======
+from __future__ import annotations
+
+from typing import List, Optional
+
+from pydantic import BaseModel
+
+>>>>>>> feature/kg-module
 
 class Section(BaseModel):
     section_id: str
@@ -30,4 +39,8 @@ class Textbook(BaseModel):
     subject: str
     chapters: List[Chapter]
     total_words: int
+<<<<<<< HEAD
     edition: Optional[str] = None
+=======
+    edition: Optional[str] = None
+>>>>>>> feature/kg-module
