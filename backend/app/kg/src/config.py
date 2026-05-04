@@ -57,11 +57,57 @@ class EvalConfig:
 
 
 @dataclass
+class EmbeddingConfig:
+    provider: str
+    model: str
+    api_key_env: str
+    base_url: Optional[str] = None
+
+    def get_api_key(self) -> str:
+        return os.environ.get(self.api_key_env, "")
+
+
+@dataclass
+class RerankerConfig:
+    provider: str
+    model: str
+    api_key_env: str
+
+    def get_api_key(self) -> str:
+        return os.environ.get(self.api_key_env, "")
+
+
+@dataclass
+class GeneratorConfig:
+    default_model: str
+    reasoning_model: str
+    api_key_env: str
+
+    def get_api_key(self) -> str:
+        return os.environ.get(self.api_key_env, "")
+
+
+@dataclass
+class RetrievalConfig:
+    vector_top_k: int
+    rerank_top_k: int
+
+
+@dataclass
+class GraphRAGConfig:
+    embedding: EmbeddingConfig
+    reranker: RerankerConfig
+    generator: GeneratorConfig
+    retrieval: RetrievalConfig
+
+
+@dataclass
 class KGConfig:
     llm: LLMConfig
     parsing: ParsingConfig
     storage: Dict[str, Any]
     eval: EvalConfig
+    graphrag: GraphRAGConfig
 
 
 def load_config(path: Path = CONFIG_PATH) -> KGConfig:
@@ -73,6 +119,12 @@ def load_config(path: Path = CONFIG_PATH) -> KGConfig:
         parsing=ParsingConfig(**data["parsing"]),
         storage=data["storage"],
         eval=EvalConfig(**data["eval"]),
+        graphrag=GraphRAGConfig(
+            embedding=EmbeddingConfig(**data["graphrag"]["embedding"]),
+            reranker=RerankerConfig(**data["graphrag"]["reranker"]),
+            generator=GeneratorConfig(**data["graphrag"]["generator"]),
+            retrieval=RetrievalConfig(**data["graphrag"]["retrieval"]),
+        ),
     )
 
 

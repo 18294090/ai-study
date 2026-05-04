@@ -21,3 +21,21 @@ storage:
 eval:
   default_threshold: 0.7
   min_f1: 0.5
+
+graphrag:
+  embedding:
+    provider: "bge-m3"
+    model: "BAAI/bge-m3"
+    api_key_env: "OPENAI_API_KEY"
+    base_url: "http://localhost:8000/v1"
+  reranker:
+    provider: "cohere"
+    model: "rerank-v3"
+    api_key_env: "COHERE_API_KEY"
+  generator:
+    default_model: "gpt-4o"
+    reasoning_model: "o3"
+    api_key_env: "OPENAI_API_KEY"
+  retrieval:
+    vector_top_k: 30
+    rerank_top_k: 10
