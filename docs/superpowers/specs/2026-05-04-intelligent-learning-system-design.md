@@ -1,0 +1,355 @@
+# LearnHub - 智慧学习系统设计文档
+
+> **Date:** 2026-05-04
+> **Status:** Approved
+> **Version:** 1.0
+
+## 1. 核心理念
+
+**去中心化的学习社区** —— 每个用户既是学习者，也可以随时成为组织者。知识共享、学习协作、成就激励全部围绕用户展开。
+
+## 2. 核心设计原则
+
+| 原则 | 描述 |
+|------|------|
+| **用户中心** | 每个用户拥有完整数据主权，可导出、删除、撤回授权 |
+| **角色平等** | 学习者与组织者随时切换，无固定身份绑定 |
+| **知识共享** | 群组内知识共建，去中心化无权威教师 |
+| **数据贡献** | 用户同意后数据用于AI训练优化（可随时撤回） |
+| **合规优先** | GDPR、中国网络安全法、未成年人保护全面合规 |
+
+## 3. 系统架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        云端服务层 (SaaS)                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │  知识图谱 │  │   题库    │  │ 学习路径  │  │   社交   │        │
+│  │  服务    │  │   服务    │  │   服务    │  │   服务   │        │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
+│       └─────────────┴─────────────┴─────────────┘              │
+│                           │                                    │
+│  ┌────────────────────────┼─────────────────────────────┐    │
+│  │              游戏化 + 成就系统                          │    │
+│  └────────────────────────┬─────────────────────────────┘    │
+│                           │                                    │
+│  ┌────────────────────────┼─────────────────────────────┐    │
+│  │                 数据层 (统一云端)                       │    │
+│  │  • PostgreSQL (核心数据)                               │    │
+│  │  • Neo4j (知识图谱)                                     │    │
+│  │  • Redis (缓存)                                        │    │
+│  │  • S3 (静态资源)                                       │    │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+         │
+┌────────▼────────┐
+│      用户       │
+│  学习者 ↔ 组织者 │
+│  (随时切换)     │
+└─────────────────┘
+```
+
+## 4. 技术栈
+
+| 组件 | 技术选型 |
+|------|----------|
+| **文档解析** | MinerU（PDF/扫描件 → 结构化文本） |
+| **知识图谱存储** | Neo4j |
+| **核心数据库** | PostgreSQL |
+| **缓存** | Redis |
+| **对象存储** | S3（静态资源/图片/视频） |
+| **AI 抽取** | GPT-4o / Claude-3.5 |
+| **Agent 框架** | DeerFlow 2.0 |
+| **后端框架** | FastAPI / LangGraph |
+| **前端** | React + Tailwind |
+| **部署** | Docker + Kubernetes (云端) |
+
+## 5. 用户角色设计
+
+| 角色 | 权限 |
+|------|------|
+| **学习者（默认）** | 学习、刷题、查看知识图谱、参与群组、社交、查看成就 |
+| **组织者（按需切换）** | 创建群组、分享知识、组织学习活动、发起挑战、查看群组统计 |
+
+**切换机制**：用户点击按钮即可切换，无需审批
+
+## 6. 核心功能模块
+
+### 6.1 知识图谱服务
+
+| 功能 | 描述 |
+|------|------|
+| **教材解析** | MinerU 解析 PDF/扫描件，保留章节、公式、表格结构 |
+| **知识抽取** | LLM 识别实体（概念/人物/事件/公式/作品等）和关系（is_a/part_of/causes等） |
+| **图谱存储** | Neo4j 存储知识三元组，支持属性（置信度/来源/描述） |
+| **图谱查询** | 知识点检索、路径分析、关联推荐 |
+| **可视化** | 交互式图谱展示，支持筛选和下钻 |
+
+**知识图谱 Schema：**
+
+```
+Entity Types: concept, person, event, location, formula, work, time
+Relation Types: is_a, part_of, causes, relates_to, applies_to, before, after, similar_to, defined_by, example_of
+```
+
+### 6.2 题库系统
+
+| 功能 | 描述 |
+|------|------|
+| **试卷导入** | 支持 PDF/图片/Word/纯文本多格式输入 |
+| **智能解析** | MinerU + OCR 识别题目、选项、答案 |
+| **自动标注** | LLM 自动标注：知识点关联、难度(1-5)、题型、能力维度(布鲁姆) |
+| **智能组卷** | 根据目标知识点/难度/能力维度自动生成试卷 |
+| **题目检索** | 按知识点/难度/能力等多维度检索 |
+
+### 6.3 学习路径服务
+
+| 功能 | 描述 |
+|------|------|
+| **学情诊断** | 综合考试评估 + 实时答题分析 + 知识图谱推理 |
+| **薄弱点定位** | 基于知识图谱的掌握关系推断 |
+| **路径规划** | AI 根据认知科学原理规划最优学习顺序 |
+| **内容推荐** | 自适应推送视频/图文/互动等多模态内容 |
+| **进度追踪** | 实时更新学习进度和掌握度 |
+
+### 6.4 去中心化群组
+
+| 功能 | 描述 |
+|------|------|
+| **创建群组** | 任何用户可创建，设置群组名称/描述/可见性 |
+| **加入群组** | 搜索加入或邀请链接加入 |
+| **知识共享** | 群组成员共建知识库，上传资料和笔记 |
+| **学习活动** | 组织者发起学习任务、挑战、答疑 |
+| **群组排行** | 群组内学习贡献/活跃度排行 |
+
+### 6.5 社交学习
+
+| 功能 | 描述 |
+|------|------|
+| **问答社区** | 发布问题，悬赏积分，成员解答 |
+| **讨论区** | 话题讨论，帖子/评论 |
+| **进度对比** | 与好友/群组成员对比学习进度 |
+| **学习搭档** | 基于共同兴趣/目标匹配学习搭档 |
+
+### 6.6 游戏化系统
+
+| 功能 | 描述 |
+|------|------|
+| **成就徽章** | 达成里程碑获得徽章（首次完成/连续学习/知识贡献等） |
+| **学习积分** | 完成任务/回答问题/分享知识获得积分 |
+| **排行榜** | 全站/群组/好友排行（日/周/月/总榜） |
+| **连续学习** | streaks 显示连续学习天数，断裂提醒 |
+| **里程碑奖励** | 达成目标获得奖励（徽章/积分/特权） |
+
+### 6.7 自适应内容
+
+| 功能 | 描述 |
+|------|------|
+| **多模态推送** | 根据用户偏好推送视频/图文/互动内容 |
+| **难度递进** | 支架式教学，内容难度逐步提升 |
+| **跨学科关联** | 主动展示知识点在其他学科的应用 |
+| **遗忘曲线** | 根据艾宾浩斯遗忘曲线安排复习 |
+
+### 6.8 监控与报告
+
+| 功能 | 描述 |
+|------|------|
+| **学习报告** | 周报/月报自动生成，推送至用户 |
+| **数据导出** | 用户可导出自己的所有数据（合规要求） |
+| **隐私控制** | 数据共享范围、授权管理 |
+
+## 7. 数据模型
+
+### 7.1 核心实体
+
+```python
+User:
+  - id: str
+  - email: str
+  - name: str
+  - password_hash: str
+  - role: str (learner/organizer/both)
+  - created_at: datetime
+  - privacy_settings: dict
+  - consent_for_ai_training: bool
+
+KnowledgeGraph:
+  - id: str
+  - source: str (教材名称)
+  - subject: str (science/arts)
+  - nodes: List[Entity]
+  - edges: List[Relation]
+
+Entity:
+  - id: str
+  - name: str
+  - type: EntityType
+  - description: str
+  - source: str
+  - confidence: float
+
+Relation:
+  - subject_id: str
+  - predicate: RelationType
+  - object_id: str
+  - confidence: float
+  - source: str
+
+Question:
+  - id: str
+  - content: str
+  - options: List[str] (for choice)
+  - answer: str
+  - explanation: str
+  - knowledge_points: List[str]
+  - difficulty: int (1-5)
+  - question_type: str (choice/fill/answer/proof)
+  - ability_level: str (remember/understand/apply/analyze/evaluate/create)
+  - source: str
+
+QuestionBank:
+  - id: str
+  - name: str
+  - questions: List[Question]
+  - created_by: str (user_id)
+
+Group:
+  - id: str
+  - name: str
+  - description: str
+  - created_by: str (user_id)
+  - members: List[str] (user_ids)
+  - visibility: str (public/private)
+  - shared_knowledge: List[str] (kg_ids)
+
+LearningPath:
+  - id: str
+  - user_id: str
+  - diagnosis: dict
+  - recommendations: List[dict]
+  - progress: dict
+  - achievements: List[str]
+
+Gamification:
+  - user_id: str
+  - points: int
+  - streak_days: int
+  - achievements: List[str]
+  - leaderboard_position: int
+```
+
+## 8. API 设计
+
+### 8.1 认证
+
+```
+POST /api/v1/auth/register          # 注册
+POST /api/v1/auth/login             # 登录
+POST /api/v1/auth/logout            # 登出
+POST /api/v1/auth/data-export       # 导出用户数据
+POST /api/v1/auth/consent           # AI训练授权同意
+DELETE /api/v1/auth/consent         # 撤回AI训练授权
+```
+
+### 8.2 知识图谱
+
+```
+POST /api/v1/knowledge-graph/build    # 教材→知识图谱
+GET  /api/v1/knowledge-graph/:id     # 获取图谱
+GET  /api/v1/knowledge-graph/query   # 查询知识点
+GET  /api/v1/knowledge-graph/visualize/:id  # 可视化
+```
+
+### 8.3 题库
+
+```
+POST /api/v1/question-bank/import     # 导入试卷
+GET  /api/v1/question-bank/:id        # 获取题库
+GET  /api/v1/questions                # 搜索题目
+GET  /api/v1/questions/:id             # 题目详情
+POST /api/v1/exam/generate            # 智能组卷
+POST /api/v1/exam/submit              # 提交答案
+```
+
+### 8.4 学习
+
+```
+POST /api/v1/learning/diagnosis        # 学情诊断
+GET  /api/v1/learning/path             # 获取学习路径
+GET  /api/v1/learning/progress         # 学习进度
+GET  /api/v1/learning/recommendations  # 内容推荐
+```
+
+### 8.5 群组（去中心化）
+
+```
+POST /api/v1/groups/create             # 创建群组
+GET  /api/v1/groups                    # 搜索群组
+POST /api/v1/groups/:id/join           # 加入群组
+POST /api/v1/groups/:id/leave          # 离开群组
+GET  /api/v1/groups/:id                # 群组详情
+POST /api/v1/groups/:id/share-knowledge # 共享知识
+GET  /api/v1/groups/:id/members        # 成员列表
+```
+
+### 8.6 社交
+
+```
+POST /api/v1/discussions               # 发布讨论
+GET  /api/v1/discussions/:id           # 讨论详情
+POST /api/v1/discussions/:id/reply     # 回复
+GET  /api/v1/progress-comparison       # 进度对比
+GET  /api/v1/learning-partners         # 学习搭档匹配
+```
+
+### 8.7 游戏化
+
+```
+GET  /api/v1/achievements              # 成就列表
+GET  /api/v1/achievements/:id          # 成就详情
+GET  /api/v1/leaderboard               # 排行榜
+GET  /api/v1/gamification/stats         # 用户游戏化数据
+POST /api/v1/gamification/streak       # 更新streak
+```
+
+### 8.8 数据与隐私
+
+```
+GET  /api/v1/user/profile              # 用户资料
+PUT  /api/v1/user/profile              # 更新资料
+GET  /api/v1/user/privacy-settings     # 隐私设置
+PUT  /api/v1/user/privacy-settings     # 更新隐私设置
+GET  /api/v1/user/data                # 获取所有数据
+DELETE /api/v1/user/data               # 删除所有数据
+```
+
+## 9. 合规设计
+
+| 合规要求 | 实现方式 |
+|---------|---------|
+| **数据加密** | 传输 TLS 1.3，存储 AES-256 |
+| **用户主权** | 数据可导出、可删除、可撤回授权 |
+| **AI训练授权** | 用户同意后数据用于模型优化，可随时撤回 |
+| **GDPR** | 数据最小化、删除权、便携性、同意管理 |
+| **网络安全法** | 数据分类分级、加密传输、日志审计 |
+| **未成年人保护** | 实名认证、时长限制、内容过滤、家长监控接口 |
+
+## 10. 部署
+
+- **架构**：纯云端 SaaS，多租户
+- **容器化**：Docker + Kubernetes
+- **区域**：支持多区域部署，合规数据本地化
+- **监控**：日志审计、异常检测、SLA 保障
+
+## 11. 后续步骤
+
+下一步将基于本设计文档制定详细的实现计划，涵盖：
+- 知识图谱构建（基于 DeerFlow + MinerU）
+- 题库生成系统
+- 学习路径引擎
+- 游戏化与社交功能
+- 前端实现
+
+---
+
+**文档状态**：已批准，可进入实现阶段
