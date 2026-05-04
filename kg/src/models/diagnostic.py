@@ -4,11 +4,8 @@ from typing import List, Optional, Literal
 
 from pydantic import BaseModel
 
-from .entities import EntityBase
 
-
-class Skill(EntityBase):
-    layer: Literal["domain", "pedagogical", "diagnostic"] = "diagnostic"
+class Skill(BaseModel):
     parent_skill: Optional[str] = None
     mastery_threshold: float = 0.8
 
