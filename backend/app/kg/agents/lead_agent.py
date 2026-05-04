@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Any, Optional
 import asyncio
-from src.models import Textbook, Chapter
+from app.kg.src.models import Textbook, Chapter
 
 
 class PipelineState(TypedDict):
@@ -17,7 +17,7 @@ class PipelineState(TypedDict):
 
 
 def parse_node(state: PipelineState) -> PipelineState:
-    from src.parsers.multi_parser import MultiParserVote
+    from app.kg.src.parsers.multi_parser import MultiParserVote
 
     textbook_id = state["textbook_id"]
     chapters = state.get("chapters", [])
@@ -66,8 +66,8 @@ async def extract_domain_node(state: PipelineState) -> PipelineState:
 
 
 async def _extract_domain_triples(chapter: Chapter) -> list:
-    from kg.agents.domain_extractor import DomainExtractor
-    from kg.src.llm_router import LLMRouter
+    from app.kg.agents.domain_extractor import DomainExtractor
+    from app.kg.src.llm_router import LLMRouter
     try:
         router = LLMRouter()
         extractor = DomainExtractor(router.get_client())
@@ -101,8 +101,8 @@ async def tag_pedagogical_node(state: PipelineState) -> PipelineState:
 
 
 async def _tag_pedagogical(chapter: Chapter) -> list:
-    from kg.agents.pedagogical_tagger import PedagogicalTagger
-    from kg.src.llm_router import LLMRouter
+    from app.kg.agents.pedagogical_tagger import PedagogicalTagger
+    from app.kg.src.llm_router import LLMRouter
     try:
         router = LLMRouter()
         tagger = PedagogicalTagger(router.get_client())
@@ -136,8 +136,8 @@ async def map_skills_node(state: PipelineState) -> PipelineState:
 
 
 async def _map_skills(chapter: Chapter) -> list:
-    from kg.agents.skill_mapper import SkillMapper
-    from kg.src.llm_router import LLMRouter
+    from app.kg.agents.skill_mapper import SkillMapper
+    from app.kg.src.llm_router import LLMRouter
     try:
         router = LLMRouter()
         mapper = SkillMapper(router.get_client())
@@ -192,10 +192,10 @@ def eval_fail_report_node(state: PipelineState) -> PipelineState:
 
 
 def store_node(state: PipelineState) -> PipelineState:
-    from kg.src.storage.dual_writer import DualWriter
-    from kg.src.storage.neo4j_writer import Neo4jWriter
-    from kg.src.storage.qdrant_writer import QdrantWriter
-    from kg.src.config import get_config
+    from app.kg.src.storage.dual_writer import DualWriter
+    from app.kg.src.storage.neo4j_writer import Neo4jWriter
+    from app.kg.src.storage.qdrant_writer import QdrantWriter
+    from app.kg.src.config import get_config
     import os
 
     cfg = get_config()

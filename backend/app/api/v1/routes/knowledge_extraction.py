@@ -22,82 +22,34 @@ async def process_knowledge_extraction(
     subject_id: int,
     user_id: int
 ):
-    """后台任务：处理知识点提取和图谱构建"""
-    async with AsyncSessionLocal() as db:
-        try:
-            # 1. 加载和切分文档
-            # 注意：split_exam_paper 返回的是 Document 对象列表
-            documents = split_exam_paper(file_path)
-            
-            # 2. 提取知识点
-            extractor = KnowledgeExtractionService()
-            extracted_points_data = await extractor.extract_from_documents(documents, subject_id)
-            
-            # 3. 保存知识点到数据库
-            name_to_id_map = {}
-            for kp_data in extracted_points_data:
-                # 检查是否存在
-                stmt = select(KnowledgePoint).where(
-                    KnowledgePoint.subject_id == subject_id,
-                    KnowledgePoint.name == kp_data['name']
-                )
-                result = await db.execute(stmt)
-                existing_kp = result.scalar_one_or_none()
-                
-                if existing_kp:
-                    name_to_id_map[kp_data['name']] = existing_kp.id
-                    continue
-                    
-                # 创建新知识点
-                new_kp = KnowledgePoint(
-                    name=kp_data['name'],
-                    description=kp_data['description'],
-                    subject_id=subject_id,
-                    difficulty=kp_data['difficulty'],
-                    creator_id=user_id,
-                    code=f"AUTO-{subject_id}-{len(name_to_id_map)}", # 临时生成
-                    slug=f"auto-{subject_id}-{kp_data['name']}", # 简单生成
-                    is_active=True
-                )
-                db.add(new_kp)
-                await db.flush() # 获取 ID
-                await db.refresh(new_kp)
-                name_to_id_map[kp_data['name']] = new_kp.id
-                
-            # 4. 构建关系
-            builder = KnowledgeGraphBuilder()
-            relationships = builder.build_graph(extracted_points_data)
-            optimized_rels = builder.optimize_graph(relationships)
-            
-            # 5. 保存关系到数据库 (PG & Neo4j)
-            for rel in optimized_rels:
-                source_id = name_to_id_map.get(rel['source'])
-                target_id = name_to_id_map.get(rel['target'])                
-                if source_id and target_id and source_id != target_id:
-                    # PG
-                    new_rel = KnowledgePointRelationship(
-                        source_id=source_id,
-                        target_id=target_id,
-                        relationship_type=rel['type'],
-                        weight=rel['weight']
-                    )
-                    db.add(new_rel)
-                    
-                    # Neo4j (同步调用，可能需要优化)
-                    try:
-                        create_typed_relation(source_id, target_id, rel['type'].value, rel['weight'])
-                    except Exception as e:
-                        print(f"Neo4j sync failed: {e}")
+    from kg.src.parsers.multi_parser import create_multi_parser
+    from kg.agents.lead_agent import run_pipeline
+    from kg.src.config import get_config
+    import os
 
-            await db.commit()
-            
-        except Exception as e:
-            print(f"Extraction task failed: {e}")
-            await db.rollback()
-        finally:
-            # 清理临时文件
-            if os.path.exists(file_path):
-                os.remove(file_path)
+    try:
+        textbook = create_multi_parser().parse(file_path)
+        textbook.textbook_id = f"textbook_{subject_id}_{user_id}"
+        textbook.subject = str(subject_id)
+
+        cfg = get_config()
+        result = await run_pipeline(
+            textbook_id=textbook.textbook_id,
+            chapters=textbook.chapters,
+            eval_threshold=cfg.eval.default_threshold,
+        )
+
+        if not result.get("eval_passed", False):
+            print(f"[pipeline] eval gate failed for {textbook.textbook_id}")
+            return
+
+        print(f"[pipeline] Success for {textbook.textbook_id}")
+
+    except Exception as e:
+        print(f"[pipeline] Extraction task failed: {e}")
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 
 @router.post("/extract/{subject_id}", operation_id="从文件提取知识点")
