@@ -2,442 +2,471 @@
 
 > **Date:** 2026-05-04
 > **Status:** Approved
-> **Version:** 1.2（新增 AIGC 试题生成）
+> **Version:** 2.0（融入 GraphRAG / IRT-BKT / 推理模型 / 程序化内容生成 / 评测体系）
+
+## 0. 版本变更摘要 (v1.2 → v2.0)
+
+| 类别 | v1.2 | v2.0 |
+|---|---|---|
+| 教学法引擎 | 仅布鲁姆 + 艾宾浩斯 | 引入 **BKT/DKT + IRT 2PL** 双模型，mastery state 一等数据 |
+| 知识图谱 | 单层 schema (7 实体 + 10 关系) | **三层 KG**：学科图谱 / 教学图谱 / 认知诊断图谱 |
+| 检索范式 | KG 与 RAG 解耦 | **GraphRAG**：社区摘要 + 实体扩展 + 三元组锚定 |
+| LLM 调用 | GPT-4o / Claude-3.5 一刀切 | **分级路由**：推理模型 (o3/R1) 处理难任务，小模型处理高频任务，结构化输出 + prompt caching |
+| 实体消歧 | Levenshtein 编辑距离 | **BGE-M3 embedding + 类型约束 + LLM verifier** 三阶段 |
+| AIGC 内容 | Sora 直接生成视频 | **程序化动画 (Manim/Remotion) + LLM 旁白 + 互动 widget** 为主，端到端视频为辅 |
+| 出题质量 | 静态难度 1-5 | **IRT 难度反求 + misconception 干扰项库 + 双 LLM 交叉校验 + 求解器 ground-truth** |
+| 内容治理 | 完全去中心化 | **专家审核池 + 社区贡献池** 双层；用户分级 (learner / contributor / verified organizer) |
+| 评测体系 | 无 | **CI 评测集**：500 三元组 / 200 题 / 100 tutoring dialog |
+| 安全 | 未提 | Prompt injection 防御、内容投毒检测、AIGC 显著标识、机器遗忘 |
+| Agent 定位 | 含糊（DeerFlow 一刀切） | **不以 Agent 为架构中心**：核心是 GraphRAG + 教学法引擎；Agent 仅在受约束的执行层（Tutor、研究型任务） |
+
+---
 
 ## 1. 核心理念
 
-**去中心化的学习社区** —— 每个用户既是学习者，也可以随时成为组织者。知识共享、学习协作、成就激励全部围绕用户展开。
+**双层去中心化学习社区** —— 严肃知识由专家与算法共同把关，长尾知识由社区共建。AI 不是答案分发器，而是**苏格拉底式 1:1 导师**。每位用户拥有完整数据主权与可解释的学习画像。
 
 ## 2. 核心设计原则
 
 | 原则 | 描述 |
 |------|------|
-| **用户中心** | 每个用户拥有完整数据主权，可导出、删除、撤回授权 |
-| **角色平等** | 学习者与组织者随时切换，无固定身份绑定 |
-| **知识共享** | 群组内知识共建，去中心化无权威教师 |
-| **数据贡献** | 用户同意后数据用于AI训练优化（可随时撤回） |
-| **合规优先** | GDPR、中国网络安全法、未成年人保护全面合规 |
+| **教学优先** | 所有功能服从学习科学（Mastery Learning、ZPD、检索练习、间隔重复） |
+| **可解释 AI** | 推荐/诊断/打分必须给出 KG 路径与置信度 |
+| **用户中心** | 完整数据主权，可导出、删除、撤回授权、机器遗忘 |
+| **角色分级** | learner → contributor → verified organizer，权限随声誉解锁 |
+| **质量双轨** | 专家审核内容池 + 社区贡献内容池，分别加权推荐 |
+| **成本可控** | 模型分级路由，长上下文 + prompt caching，冷热分层缓存 |
+| **合规优先** | GDPR、网安法、未成年人保护、教培双减、AIGC 显著标识 |
 
 ## 3. 系统架构
 
+### 3.0 架构原则：**Agent 不是中心**
+
+架构以 **教学法 (L0) → 知识表示 GraphRAG (L1) → 评测 (L2) → 执行形态 (L3)** 自顶向下分层。Agent 仅是 L3 的一种执行形态，受 L0/L1/L2 严格约束：
+
+- **能写成确定性 DAG 的，不做成 Agent**：KG 抽取/融合/社区检测、IRT/BKT 推断、FSRS 调度、路径规划、内容校验流水线全部走 LangGraph DAG + structured outputs。
+- **必须多轮交互的才 Agent 化**，且必须叠加状态机与教学法约束：Tutor 对话、Expert Reviewer 协助、跨教材研究。
+- **所有 Agent 输出必须可锚定到 KG**（citations 指向 KG 节点 / 章节），且经过 evaluator/verifier。
+- **Agent 不直接持久化**：写入 KG、Mastery、内容池等关键状态由确定性服务执行，Agent 通过受控 API 触发。
+
+> 反例：把 Tutor 做成自由 ReAct Agent → 教学质量不稳、不可评测、幻觉、成本失控（Khanmigo 早期教训）。
+
+### 3.1 分层视图
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        云端服务层 (SaaS)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │  知识图谱 │  │   题库    │  │ 学习路径  │  │   社交   │        │
-│  │  服务    │  │   服务    │  │   服务    │  │   服务   │        │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
-│       └─────────────┴─────────────┴─────────────┘              │
-│                           │                                    │
-│  ┌────────────────────────┼─────────────────────────────┐    │
-│  │              内容生成服务 (AIGC)                       │    │
-│  │  • 视频生成   • 图片生成   • 文字内容生成             │    │
-│  └────────────────────────┬─────────────────────────────┘    │
-│                           │                                    │
-│  ┌────────────────────────┼─────────────────────────────┐    │
-│  │              游戏化 + 成就系统                          │    │
-│  └────────────────────────┬─────────────────────────────┘    │
-│                           │                                    │
-│  ┌────────────────────────┼─────────────────────────────┐    │
-│  │                 数据层 (统一云端)                       │    │
-│  │  • PostgreSQL (核心数据)                               │    │
-│  │  • Neo4j (知识图谱)                                     │    │
-│  │  • Redis (缓存)                                        │    │
-│  │  • S3 (静态资源/生成的视频/图片)                       │    │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-         │
-┌────────▼────────┐
-│      用户       │
-│  学习者 ↔ 组织者 │
-│  (随时切换)     │
-└─────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                         应用层 (Web / Mobile / API)                     │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────┴─────────────────────────────────────┐
+│                  教学法引擎 Pedagogical Engine                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐      │
+│  │ Mastery Model│  │  IRT 难度估计 │  │ Socratic Tutor (Dialog)  │      │
+│  │ (BKT / DKT)  │  │  (2PL/3PL)   │  │ State Machine + Verifier │      │
+│  └──────────────┘  └──────────────┘  └──────────────────────────┘      │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────┴─────────────────────────────────────┐
+│              统一 GraphRAG 检索层 (所有下游任务的入口)                   │
+│   query → community summary → entity expansion → triple-grounded         │
+│   ┌────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │
+│   │ Vector DB  │  │ KG (Neo4j)   │  │ Community    │  │ Reranker   │  │
+│   │ (BGE-M3)   │  │ 三层 schema  │  │ Summaries    │  │ (Cohere)   │  │
+│   └────────────┘  └──────────────┘  └──────────────┘  └────────────┘  │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────┴─────────────────────────────────────┐
+│                       LLM 路由 (Model Router)                          │
+│   推理模型 (o3 / DeepSeek-R1)  │  通用 (GPT-4o / Claude 3.7)            │
+│   蒸馏小模型 (Qwen-7B / R1-D)  │  Embedding (BGE-M3 multimodal)         │
+│   ★ 强制 structured outputs / prompt caching / DSPy 编译式优化          │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────┴─────────────────────────────────────┐
+│                          领域服务                                      │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
+│ │ 知识图谱  │ │  题库     │ │ 学习路径 │ │  导师    │ │ 内容生成     │  │
+│ │ KG 服务   │ │ + IRT    │ │ + 推荐   │ │ Tutor    │ │ AIGC 程序化  │  │
+│ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
+│ ┌──────────┐ ┌──────────────────┐ ┌──────────┐ ┌──────────────────┐    │
+│ │ 群组/社交│ │ 游戏化 / 成就     │ │ 内容审核 │ │ 合规 / 机器遗忘   │    │
+│ └──────────┘ └──────────────────┘ └──────────┘ └──────────────────┘    │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────┴─────────────────────────────────────┐
+│                          数据层                                        │
+│  PostgreSQL (核心) │ Neo4j (KG) │ Qdrant/Milvus (向量) │ Redis (缓存)   │
+│  ClickHouse (学习行为流) │ S3 (静态资源) │ DVC (评测集版本)              │
+└────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 3.2 多智能体架构理念引入（2026年升级）
+
+为顺应AI原生教育系统的发展趋势，LearnHub将引入多智能体（Multi-Agent）架构，提升系统智能化、灵活性与可扩展性。
+
+#### 多智能体架构核心要点
+
+- **智能体分工协作**：将复杂教育任务拆分为教学、评测、组卷、学情分析、教研等专属智能体（Agent），各司其职，协同完成全链路任务。
+- **元智能体编排**：引入MetaAgent（元智能体）负责全局任务调度、智能体协作与冲突解决，支持任务分解、角色分配、结果整合、记忆管理等能力。
+- **动态扩展与模块化**：新功能可通过增加智能体灵活扩展，无需重构主流程。各Agent可独立开发、测试、部署，提升系统可维护性。
+- **个性化与自适应**：多智能体可根据学生实时状态动态分配任务，实现更细粒度的个性化学习、诊断和推荐。
+- **系统鲁棒性与可解释性**：智能体间可互为校验、补充，降低单点失效风险。每个Agent的决策过程可独立追踪，提升系统整体可解释性。
+
+#### 典型智能体角色
+
+- 教学智能体（Teaching Agent）：负责课程内容讲解、教案生成、课堂互动
+- 学习智能体（Learning Agent）：陪伴学生学习，提供个性化辅导和答疑
+- 评测智能体（Assessment Agent）：试题生成、组卷、批改、学情分析
+- 管理智能体（Management Agent）：班级管理、排课、考勤、成绩管理
+- 教研智能体（Research Agent）：分析教学数据，发现问题，提供教研建议
+- 苏格拉底助教（Socratic Tutor Agent）：通过提问引导学生思考，培养批判性思维
+
+#### 架构集成方式
+
+- 主流程仍以LangGraph DAG为骨干，确定性任务优先DAG化，需多轮交互/复杂决策的场景采用多智能体协作。
+- 智能体间通过标准化消息协议通信，支持动态加载与卸载。
+- 可逐步在评测、组卷、学情分析、个性化推荐等模块试点Agent化，逐步推广至全系统。
+
+#### 未来演进
+
+- 便于后续引入端云混合、联邦学习、数字孪生等更高级特性。
+- 对标国际领先案例（如Fermi.ai、OpenAI Study and Learn），实现AI原生、可持续演进的智慧学习平台。
 
 ## 4. 技术栈
 
-| 组件 | 技术选型 |
-|------|----------|
-| **文档解析** | MinerU（PDF/扫描件 → 结构化文本） |
-| **知识图谱存储** | Neo4j |
-| **核心数据库** | PostgreSQL |
-| **缓存** | Redis |
-| **对象存储** | S3（静态资源/图片/视频） |
-| **AI 抽取** | GPT-4o / Claude-3.5 |
-| **Agent 框架** | DeerFlow 2.0 |
-| **后端框架** | FastAPI / LangGraph |
-| **前端** | React + Tailwind |
-| **部署** | Docker + Kubernetes (云端) |
-| **视频生成** | Sora / Pika / Runway / 自研视频生成模型 |
-| **图片生成** | DALL-E / Midjourney / Stable Diffusion |
-| **文字生成** | GPT-4o / Claude / 专项微调模型 |
-| **内容审核** | AI 自动化审核 + 人工复核机制 |
+| 组件 | 技术选型 | 说明 |
+|------|----------|---|
+| **文档解析** | MinerU + Marker + Nougat (公式) | 多解析器投票，公式专用 |
+| **KG 存储** | Neo4j (主) + Memgraph (热查询副本) | 支持 GDS Leiden 社区检测 |
+| **向量库** | Qdrant | 多模态统一空间 (BGE-M3) |
+| **核心 DB** | PostgreSQL 16 | row-level security |
+| **行为流** | ClickHouse | 学习事件秒级分析 |
+| **缓存** | Redis + DragonflyDB | prompt cache + session |
+| **对象存储** | S3 兼容 (MinIO) | 内容池、视频缓存 |
+| **推理 LLM** | OpenAI o3 / DeepSeek-R1 / Claude 3.7 thinking | 出题、解题、KG 抽取 verifier |
+| **通用 LLM** | GPT-4o / Claude 3.7 / Gemini 2.5 (1M ctx) | 长上下文章节抽取 |
+| **小模型** | Qwen2.5-7B / R1-Distill-14B (vLLM 自托管) | 高频低难任务 |
+| **Embedding** | BGE-M3 (文本+多模态)、Cohere Rerank v3 | 统一向量空间 |
+| **结构化输出** | OpenAI structured outputs / Outlines / xgrammar | 零解析失败 |
+| **生产管线编排** | LangGraph DAG + Temporal + DSPy MIPROv2 | 高 SLA、批处理、CI 评测准入；KG 抽取/Tutor/IRT 等核心路径 |
+| **研究型 Agent（可选）** | DeerFlow 2.0 + MCP | 跨教材调研、Expert Reviewer 协助；不进入高频生产路径 |
+| **后端** | FastAPI + Temporal (workflow) | 长流程编排 |
+| **前端** | Next.js 15 + React + Tailwind + Manim/Remotion | 程序化动画 |
+| **互动 widget** | MDX + 自研 React 组件库 (对标 Brilliant.org) | 可嵌入式微交互 |
+| **可计算公式** | LaTeX + SymPy AST | 步骤级解题校验 |
+| **评测** | Ragas + Promptfoo + 自建 harness | CI 评测准入 |
+| **观测** | OpenTelemetry + Langfuse | LLM trace + 成本归因 |
+| **部署** | Docker + Kubernetes + Istio | 多租户、多区域 |
 
-## 5. 用户角色设计
+## 5. 用户角色与权限分级
 
-| 角色 | 权限 |
-|------|------|
-| **学习者（默认）** | 学习、刷题、查看知识图谱、参与群组、社交、查看成就 |
-| **组织者（按需切换）** | 创建群组、分享知识、组织学习活动、发起挑战、查看群组统计 |
+| 角色 | 获取方式 | 权限 |
+|------|---|------|
+| **Learner（默认）** | 注册即得 | 学习、刷题、加入群组、提问、查看公开 KG |
+| **Contributor** | 累计贡献分 ≥ 阈值 | 上传资料、提交 KG 修订、创建普通群组（内容仅入社区池） |
+| **Verified Organizer** | 实名 + 资质审核 | 发布到专家池、组织有学分价值的活动、查看群组分析 |
+| **Expert Reviewer** | 邀请制 | 审核 AIGC 内容、仲裁 KG 冲突、设定学科基准 |
 
-**切换机制**：用户点击按钮即可切换，无需审批
+> **关键差异**：v1 "无权威教师" 改为 **"分级权威 + 社区共建"**，避免内容投毒与知识失真。
 
 ## 6. 核心功能模块
 
-### 6.1 知识图谱服务
+### 6.1 教学法引擎 (Pedagogical Engine) ★ v2.0 新增核心
 
-| 功能 | 描述 |
-|------|------|
-| **教材解析** | MinerU 解析 PDF/扫描件，保留章节、公式、表格结构 |
-| **知识抽取** | LLM 识别实体（概念/人物/事件/公式/作品等）和关系（is_a/part_of/causes等） |
-| **图谱存储** | Neo4j 存储知识三元组，支持属性（置信度/来源/描述） |
-| **图谱查询** | 知识点检索、路径分析、关联推荐 |
-| **可视化** | 交互式图谱展示，支持筛选和下钻 |
+| 子模块 | 描述 |
+|---|---|
+| **Mastery Model** | 每个用户对每个 KG 概念维护掌握概率 `p ∈ [0,1]`，使用 BKT (Bayesian Knowledge Tracing) 在线更新；高级版本切换 DKT (LSTM/Transformer) |
+| **IRT 难度估计** | 题目参数 `(a, b, c)` 由作答数据通过 EM 算法持续反求；新题冷启动用 LLM 估计 + 主动学习 |
+| **ZPD 选题** | 选择 `P(correct \| θ_user, item) ∈ [0.6, 0.8]` 的题目，最大化学习增益 |
+| **Spaced Repetition** | FSRS-5 算法（优于 SM-2/Anki 默认）+ 概念依赖加权 |
+| **Socratic Tutor** | 对话状态机：`诊断 misconception → 给提示 (hint ladder) → 引导推理 → 反例检验 → 巩固`；禁止直接给答案 |
+| **可解释诊断** | 每次诊断输出 KG 路径 + 概率：「在 X 上掌握度 0.4，因前置 Y 仅 0.5」 |
 
-**知识图谱 Schema：**
+### 6.2 知识图谱 (三层 Schema)
 
 ```
-Entity Types: concept, person, event, location, formula, work, time
-Relation Types: is_a, part_of, causes, relates_to, applies_to, before, after, similar_to, defined_by, example_of
+Layer 1 — 学科知识图谱 (Domain KG)
+   实体：concept / formula / theorem / person / event / location / work / time / dataset
+   关系：is_a / part_of / causes / equivalent_to / generalizes / contradicts /
+         applies_to / requires / before / after / similar_to / defined_by / example_of
+   属性：name, description, latex (公式), sympy_ast (可计算), source_doc, confidence
+
+Layer 2 — 教学知识图谱 (Pedagogical KG)
+   实体：learning_objective / lesson / activity / assessment / misconception
+   关系：teaches (lesson → concept) / prerequisite_of / assesses / addresses_misconception /
+         estimated_minutes / bloom_level (remember…create) / dok_level (1-4)
+
+Layer 3 — 认知诊断图谱 (Cognitive Diagnostic KG)
+   实体：skill / sub_skill / Q-matrix entry
+   关系：requires_skill (item → skill) / composed_of / mastery_threshold
+   ★ 用于 BKT/DKT 训练与诊断
 ```
 
-### 6.2 题库系统
+**关键能力**：
+- **GraphRAG 社区检测**：Leiden 算法 → 层次化社区摘要 → 全局问答能力
+- **可计算公式**：LaTeX + SymPy AST，支持「步骤级解题校验」（对标 Wolfram）
+- **跨教材融合**：embedding + LLM verifier 对齐同义概念，矛盾时进入 Expert Reviewer 仲裁队列
+- **增量更新与版本化**：每次教材改版生成 diff，影响传播至教学层与诊断层
+- **章节锚定**：每条三元组保留 `(textbook_id, chapter_id, paragraph_offset)`，可一键回引原文
 
-| 功能 | 描述 |
-|------|------|
-| **试卷导入** | 支持 PDF/图片/Word/纯文本多格式输入 |
-| **智能解析** | MinerU + OCR 识别题目、选项、答案 |
-| **自动标注** | LLM 自动标注：知识点关联、难度(1-5)、题型、能力维度(布鲁姆) |
-| **智能组卷** | 根据目标知识点/难度/能力维度自动生成试卷 |
-| **题目检索** | 按知识点/难度/能力等多维度检索 |
-| **试题生成 (AIGC)** | 基于知识图谱自动生成新题目（选择/填空/解答/证明题） |
-| **题目改编** | 根据学习者水平自动改编题目难度 |
-| **答案解析生成** | 自动生成题目答案与详细解析 |
+### 6.3 GraphRAG 统一检索层
 
-**试题生成流程：**
 ```
-知识点 → 学习者水平分析 → 题目类型选择 → AIGC 生成 → 质量校验 → 入库
-```
-
-### 6.3 学习路径服务
-
-| 功能 | 描述 |
-|------|------|
-| **学情诊断** | 综合考试评估 + 实时答题分析 + 知识图谱推理 |
-| **薄弱点定位** | 基于知识图谱的掌握关系推断 |
-| **路径规划** | AI 根据认知科学原理规划最优学习顺序 |
-| **内容推荐** | 自适应推送视频/图文/互动等多模态内容 |
-| **进度追踪** | 实时更新学习进度和掌握度 |
-
-### 6.4 去中心化群组
-
-| 功能 | 描述 |
-|------|------|
-| **创建群组** | 任何用户可创建，设置群组名称/描述/可见性 |
-| **加入群组** | 搜索加入或邀请链接加入 |
-| **知识共享** | 群组成员共建知识库，上传资料和笔记 |
-| **学习活动** | 组织者发起学习任务、挑战、答疑 |
-| **群组排行** | 群组内学习贡献/活跃度排行 |
-
-### 6.5 社交学习
-
-| 功能 | 描述 |
-|------|------|
-| **问答社区** | 发布问题，悬赏积分，成员解答 |
-| **讨论区** | 话题讨论，帖子/评论 |
-| **进度对比** | 与好友/群组成员对比学习进度 |
-| **学习搭档** | 基于共同兴趣/目标匹配学习搭档 |
-
-### 6.6 游戏化系统
-
-| 功能 | 描述 |
-|------|------|
-| **成就徽章** | 达成里程碑获得徽章（首次完成/连续学习/知识贡献等） |
-| **学习积分** | 完成任务/回答问题/分享知识获得积分 |
-| **排行榜** | 全站/群组/好友排行（日/周/月/总榜） |
-| **连续学习** | streaks 显示连续学习天数，断裂提醒 |
-| **里程碑奖励** | 达成目标获得奖励（徽章/积分/特权） |
-
-### 6.7 自适应内容
-
-| 功能 | 描述 |
-|------|------|
-| **多模态推送** | 根据用户偏好推送视频/图文/互动内容 |
-| **难度递进** | 支架式教学，内容难度逐步提升 |
-| **跨学科关联** | 主动展示知识点在其他学科的应用 |
-| **遗忘曲线** | 根据艾宾浩斯遗忘曲线安排复习 |
-
-### 6.8 内容生成服务 (AIGC)
-
-基于知识图谱和用户学情，自动生成多模态学习资料。
-
-| 功能 | 描述 | 技术方案 |
-|------|------|----------|
-| **视频生成** | 根据知识点自动生成教学视频 | Sora / Pika / Runway / 自研视频生成 |
-| **图片生成** | 生成知识点插图、流程图、示意图 | DALL-E / Midjourney / Stable Diffusion |
-| **文字生成** | 生成知识点讲解、案例分析、学习指南 | GPT-4o / Claude / 专项微调模型 |
-| **互动内容** | 生成测验、填空、排序等互动练习 | 规则引擎 + LLM |
-| **个性化适配** | 根据学习者水平和偏好调整内容形式 | 学情分析 + 内容适配引擎 |
-
-**内容生成流程：**
-```
-知识图谱中的知识点
-       ↓
-   学情诊断（学习者当前水平）
-       ↓
-   内容规划（选择合适的媒体形式）
-       ↓
-   AIGC 生成（视频/图片/文字/互动）
-       ↓
-   质量审核（AI + 人工审核）
-       ↓
-   内容发布（进入学习推荐池）
+用户 query
+   ↓
+意图分类 (factual / procedural / explanatory / meta)
+   ↓
+混合检索：
+   ├─ 向量召回 (BGE-M3 multimodal, top-50)
+   ├─ KG 实体匹配 + 1-hop 邻居扩展
+   └─ 社区摘要召回 (全局型问题)
+   ↓
+Cohere Rerank v3 → top-10
+   ↓
+推理模型生成 + 强制三元组锚定 (citations 必须指向 KG 节点 / 章节)
+   ↓
+Self-RAG verifier (检索是否充分 / 是否有幻觉)
+   ↓
+输出 + KG 路径解释
 ```
 
-**支持的内容类型：**
+> 所有下游任务（出题、辅导、推荐、内容生成）共用此检索层。
 
-| 类型 | 示例 |
-|------|------|
-| **教学视频** | "三角函数"知识点 → 3分钟动画讲解视频 |
-| **知识点图解** | "光合作用" → 细胞结构示意图 + 流程图 |
-| **学习指南** | "辛亥革命" → 时间轴 + 关键人物 + 影响分析 |
-| **互动测验** | "二次方程" → 选择/填空/解答互动练习题 |
-| **案例分析** | "经济学原理" → 真实案例 + 讨论问题 |
+### 6.4 题库系统 (含 AIGC 出题)
 
-**质量控制：**
-- AI 生成内容需经过准确性校验
-- 重要知识点支持人工审核流程
-- 用户可反馈内容质量，帮助持续优化
+| 功能 | v2.0 改进 |
+|---|---|
+| **试卷导入** | MinerU + Nougat 公式专用解析，OCR 投票 |
+| **自动标注** | 推理模型抽取 → KG 锚定 → IRT 冷启动估计 |
+| **IRT 标定** | 持续作答数据反求 `(a, b, c)`；定期 EM 重估 |
+| **智能组卷** | 给定目标 mastery 增益 → 解优化（线性规划/贪心） |
+| **AIGC 出题** | 模板化 + 参数化生成（防记忆）；推理模型生成 → 求解器/SymPy ground-truth → 第二 LLM 反向解题校验 |
+| **干扰项生成** | 基于 misconception 库（"常见错误的精炼表征"）生成有教学价值的错误选项 |
+| **质量准入** | 必过：求解器一致性 + 双 LLM 一致性 + 难度落入目标区间；否则进入人工队列 |
+| **题目改编** | 同 KG 节点 + 不同认知层级 (DOK 1→4) + 不同情境化包装 |
 
-### 6.9 监控与报告
+### 6.5 学习路径服务
 
-| 功能 | 描述 |
-|------|------|
-| **学习报告** | 周报/月报自动生成，推送至用户 |
-| **数据导出** | 用户可导出自己的所有数据（合规要求） |
-| **隐私控制** | 数据共享范围、授权管理 |
+- **诊断**：BKT 后验 + 自适应预测 (CAT, Computerized Adaptive Testing)，5-10 题完成定标
+- **路径规划**：在教学 KG 上做最短"前置依赖"DAG 拓扑序，叠加 mastery gap → 最大增益贪心
+- **遗忘管理**：FSRS-5 + 知识依赖衰减传播
+- **可解释推荐**：每条推荐附 KG 路径 + 预期 mastery 增益 + 预计耗时
 
-## 7. 数据模型
+### 6.6 苏格拉底式 AI 导师 (Tutor)
 
-### 7.1 核心实体
+> **架构定位**：Tutor 是**受约束 Agent**，不是自由 ReAct。其行为由下方状态机驱动，每一轮输出强制经过 (a) 教学法策略校验 (b) GraphRAG 三元组锚定 (c) prompt injection 检测 (d) 不直接给答案规则。状态机由 LangGraph 实现；LLM 仅负责单轮自然语言生成。
+
+| 状态 | 行为 |
+|---|---|
+| `diagnose` | 通过追问识别 misconception 节点 |
+| `hint_ladder` | 给提示 L1（方向）→ L2（关键概念）→ L3（半步推导），逐级展开 |
+| `guide` | 引导学生自己产出推理；禁止给最终答案 |
+| `counter_example` | 用反例检验是否真理解 |
+| `consolidate` | 总结 KG 路径 + 推荐巩固题 |
+| `escalate` | 三轮无进展 → 切换为讲解模式或推 expert reviewer |
+
+★ 所有 Tutor 输出经过 **prompt injection 检测**（学生题目可能注入"忽略前文"等指令）。
+
+### 6.7 群组与社交（双轨内容池）
+
+- **专家审核池**：Verified Organizer / Expert 发布，进入主推荐流，权重高
+- **社区贡献池**：Contributor 发布，进入"探索"流，需达到投票阈值才进入主推荐
+- **群组分级**：公开群 / 私有群 / 学分群（需机构认证）
+- **学习搭档**：基于 mastery 向量相似度 + 互补度匹配（不只兴趣）
+
+### 6.8 内容生成服务 (AIGC) — 程序化优先
+
+| 类型 | 主路线 | 备选 |
+|---|---|---|
+| **教学动画** | KG 节点 → LLM 生成 Manim/Remotion 脚本 → 渲染 → TTS 旁白 | Sora/Pika 端到端（仅作为风格化片头） |
+| **图解/流程图** | LLM → Mermaid / D2 / Graphviz → SVG | DALL-E（装饰性插图） |
+| **互动 widget** | MDX + 自研 React 微件（拖拽、可视化、模拟器） | — |
+| **学习指南** | GraphRAG + 推理模型生成 → 强制三元组引用 | — |
+| **互动测验** | 6.4 出题流水线复用 | — |
+
+**质量控制流水线**：
+
+```
+KG 节点 + 学情画像
+   ↓
+内容规划（选择媒介、教学法策略）
+   ↓
+程序化生成（Manim/Mermaid/MDX 代码）
+   ↓
+自动校验：编译通过 + 静态规则 + LLM 事实性检查 + 求解器一致性（如含公式）
+   ↓
+小流量灰度 (A/B) → 用户互动指标（完成率/再访率）→ 自动晋级或淘汰
+   ↓
+重要知识点：Expert Reviewer 人工抽检 + AIGC 显著标识水印
+```
+
+### 6.9 何时用 Agent / 何时不用（决策矩阵）
+
+| 场景 | 形态 | 理由 |
+|---|---|---|
+| KG 抽取 / 融合 / 社区检测 | **DAG**（LangGraph + structured outputs） | 可批处理、可评测、需 CI 准入 |
+| IRT 参数反求 / BKT 更新 / FSRS 调度 | **算法 + 批处理** | 数值方法，无需 LLM 决策 |
+| 学习路径规划 | **图算法**（拓扑序 + 增益贪心） | 确定性 + 可解释 |
+| 内容质量校验 | **规则 + 求解器 + 双 LLM 投票** | 需可重放 |
+| GraphRAG 检索 | **DAG + Self-RAG mini-loop** | 主路径确定，仅反思环节有限 agent 化 |
+| 苏格拉底 Tutor | **状态机驱动的受限 Agent** | 多轮交互不可预先 DAG 化，但必须教学法约束 |
+| 题目反向求解校验 | **推理模型 + 工具调用 (SymPy/计算器)** | 多步推理 + 工具，但无对话 |
+| 跨教材研究 / Expert Reviewer 协助 | **研究型 Agent (DeerFlow)** | 探索性、低频、人机协作 |
+| 教师端创作辅助 | **Agent + tools** | 开放式任务 |
+
+> 默认值：**先 DAG，后 Agent**。任何 Agent 化提案必须回答：(1) 为什么不能 DAG？ (2) 评测怎么做？ (3) 成本上限？ (4) 教学法约束如何强制？
+
+### 6.10 监控、报告与隐私
+
+- 学习报告：周报/月报 + 可解释性图谱
+- 数据导出：JSON + 学习画像可移植格式
+- **机器遗忘 (Machine Unlearning)**：用户撤回授权时执行 SISA / influence-based unlearning，并保存证明
+- **AIGC 显著标识**：所有生成内容元数据带 `c2pa` 签名 + UI 标识
+
+## 7. 数据模型（关键差异）
+
 
 ```python
 User:
-  - id: str
-  - email: str
-  - name: str
-  - password_hash: str
-  - role: str (learner/organizer/both)
-  - created_at: datetime
-  - privacy_settings: dict
-  - consent_for_ai_training: bool
+  ...
+  consent_for_ai_training: ConsentRecord  # 含目的限定、撤回时间戳
 
-KnowledgeGraph:
-  - id: str
-  - source: str (教材名称)
-  - subject: str (science/arts)
-  - nodes: List[Entity]
-  - edges: List[Relation]
-
-Entity:
-  - id: str
-  - name: str
-  - type: EntityType
-  - description: str
-  - source: str
-  - confidence: float
-
-Relation:
-  - subject_id: str
-  - predicate: RelationType
-  - object_id: str
-  - confidence: float
-  - source: str
+MasteryState:
+  user_id: str
+  concept_id: str
+  prob_known: float          # BKT 后验
+  last_practice_at: datetime
+  fsrs_state: dict           # 间隔重复状态
+  evidence: List[ItemId]     # 支撑证据
 
 Question:
-  - id: str
-  - content: str
-  - options: List[str] (for choice)
-  - answer: str
-  - explanation: str
-  - knowledge_points: List[str]
-  - difficulty: int (1-5)
-  - question_type: str (choice/fill/answer/proof)
-  - ability_level: str (remember/understand/apply/analyze/evaluate/create)
-  - source: str
+  ...
+  irt_params: {a: float, b: float, c: float, theta_uncertainty: float}
+  knowledge_skills: List[skill_id]   # Q-matrix
+  misconceptions_targeted: List[misconception_id]
+  solver_verified: bool
+  cross_llm_agreement: float
 
-QuestionBank:
-  - id: str
-  - name: str
-  - questions: List[Question]
-  - created_by: str (user_id)
-
-Group:
-  - id: str
-  - name: str
-  - description: str
-  - created_by: str (user_id)
-  - members: List[str] (user_ids)
-  - visibility: str (public/private)
-  - shared_knowledge: List[str] (kg_ids)
-
-LearningPath:
-  - id: str
-  - user_id: str
-  - diagnosis: dict
-  - recommendations: List[dict]
-  - progress: dict
-  - achievements: List[str]
-
-Gamification:
-  - user_id: str
-  - points: int
-  - streak_days: int
-  - achievements: List[str]
-  - leaderboard_position: int
+Misconception:
+  id: str
+  description: str
+  related_concepts: List[concept_id]
+  example_wrong_answers: List[str]
 
 Content:
-  - id: str
-  - knowledge_point: str
-  - content_type: str (video/image/text/interactive)
-  - url: str (S3 storage URL)
-  - generated_by: str (user_id / AI)
-  - target_level: str (beginner/intermediate/advanced)
-  - status: str (generating/ready/archived)
-  - quality_score: float
-  - usage_count: int
-  - created_at: datetime
+  ...
+  generation_pipeline: str            # manim / remotion / mermaid / sora
+  source_kg_nodes: List[concept_id]
+  c2pa_signature: str
+  pool: Literal["expert", "community"]
+  quality_metrics: {factuality, engagement, completion_rate}
+
+KGTriple:
+  ...
+  textbook_anchor: {textbook_id, chapter_id, paragraph_offset}
+  layer: Literal["domain", "pedagogical", "diagnostic"]
+  community_id: Optional[str]         # Leiden 社区
 ```
 
-## 8. API 设计
-
-### 8.1 认证
+## 8. API 设计（v2.0 增量）
 
 ```
-POST /api/v1/auth/register          # 注册
-POST /api/v1/auth/login             # 登录
-POST /api/v1/auth/logout            # 登出
-POST /api/v1/auth/data-export       # 导出用户数据
-POST /api/v1/auth/consent           # AI训练授权同意
-DELETE /api/v1/auth/consent         # 撤回AI训练授权
+# 教学法引擎
+GET  /api/v1/mastery/:user_id              # 当前 mastery 向量
+POST /api/v1/mastery/update                # 提交作答事件，BKT 更新
+GET  /api/v1/diagnose/cat                  # 自适应测试下一题
+
+# GraphRAG 统一检索
+POST /api/v1/rag/query                     # body: {q, mode: factual|global|tutor}
+                                           # resp: {answer, citations[], kg_paths[]}
+
+# Tutor
+POST /api/v1/tutor/session                 # 创建会话
+POST /api/v1/tutor/turn                    # 单轮对话（含 state machine 状态）
+
+# AIGC（程序化优先）
+POST /api/v1/content/generate
+  body: {kg_node, modality: animation|diagram|widget|guide, level}
+  resp: {content_id, pipeline: manim|mermaid|mdx, status, c2pa}
+
+# 评测
+POST /api/v1/eval/run                      # 触发 CI 评测
+GET  /api/v1/eval/baseline                 # baseline 指标
+
+# 隐私
+POST /api/v1/user/unlearn                  # 触发机器遗忘
 ```
 
-### 8.2 知识图谱
+其余 v1 API（认证、群组、社交、游戏化、隐私）保留并兼容。
 
-```
-POST /api/v1/knowledge-graph/build    # 教材→知识图谱
-GET  /api/v1/knowledge-graph/:id     # 获取图谱
-GET  /api/v1/knowledge-graph/query   # 查询知识点
-GET  /api/v1/knowledge-graph/visualize/:id  # 可视化
-```
+## 9. 评测体系 (Evaluation Harness) ★ v2.0 新增
 
-### 8.3 题库
+无评测则无先进。所有模型变更必须经 CI 评测准入。
 
-```
-POST /api/v1/question-bank/import     # 导入试卷
-GET  /api/v1/question-bank/:id        # 获取题库
-GET  /api/v1/questions                # 搜索题目
-GET  /api/v1/questions/:id             # 题目详情
-POST /api/v1/exam/generate            # 智能组卷
-POST /api/v1/exam/submit              # 提交答案
-POST /api/v1/questions/generate        # AIGC 生成试题
-  - body: { knowledge_point, question_type, difficulty, count }
-  - response: { question_ids[] }
-POST /api/v1/questions/:id/regenerate # 题目改编
-```
+| 评测集 | 规模 | 指标 | 准入门槛 |
+|---|---|---|---|
+| KG 三元组抽取 | 500 条人工标注 | Precision / Recall / F1 | F1 ≥ 0.80 |
+| 题目生成 | 200 题人工评分 | 事实正确率 / 难度落点准确率 / 干扰项有效性 | ≥ 0.90 / ≥ 0.70 / ≥ 0.60 |
+| Tutor 对话 | 100 dialog | 苏格拉底度评分 / misconception 命中 / 不直接给答案率 | ≥ 4/5 / ≥ 0.7 / ≥ 0.95 |
+| GraphRAG | 300 query | Faithfulness / Answer Relevancy (Ragas) / Citation 命中 | ≥ 0.85 / ≥ 0.80 / ≥ 0.90 |
+| 推荐 | 历史日志重放 | NDCG@10 / mastery 增益 | 优于上一版本 |
 
-### 8.4 学习
+工具：Ragas + Promptfoo + 自建 harness；评测集与版本绑定（DVC）。
 
-```
-POST /api/v1/learning/diagnosis        # 学情诊断
-GET  /api/v1/learning/path             # 获取学习路径
-GET  /api/v1/learning/progress         # 学习进度
-GET  /api/v1/learning/recommendations   # 内容推荐
-```
+## 10. 成本与延迟工程
 
-### 8.5 内容生成 (AIGC)
+| 策略 | 描述 |
+|---|---|
+| **模型路由** | 简单意图 → 7B 自托管；中等 → GPT-4o；推理/出题 → o3/R1 |
+| **Prompt caching** | 长上下文教材 + 系统 prompt 全部缓存（Anthropic / Gemini 原生） |
+| **请求合并** | 高频 mastery 更新、推荐刷新做批处理 |
+| **冷热分层** | 热概念预生成内容入 Redis；冷概念按需生成 |
+| **预算护栏** | 单用户日均 token 上限 + 每模型 cost cap，超限降级 |
+| **观测** | Langfuse 全链路 trace + 单功能成本归因 |
 
-```
-POST /api/v1/content/generate          # 生成学习资料
-  - body: { knowledge_point, content_type: video/image/text/interactive, target_level }
-  - response: { content_id, status, estimated_time }
+目标：免费用户日均成本 < ¥0.50，付费用户 < ¥3.00。
 
-GET  /api/v1/content/:id               # 获取生成的内容
-GET  /api/v1/content/templates         # 获取内容模板
-POST /api/v1/content/:id/feedback      # 用户反馈内容质量
-GET  /api/v1/content/pool               # 内容池（可搜索）
-```
+## 11. 安全与合规
 
-### 8.6 群组（去中心化）
+| 风险 | 防御 |
+|---|---|
+| **Prompt injection** | 学生输入分层隔离（system/user/document），injection classifier，敏感动作需二次确认 |
+| **内容投毒** | 社区贡献池需投票门槛 + 自动事实核查 + KG 一致性校验 |
+| **AIGC 误导** | 所有生成内容 c2pa 签名 + UI 显著标识 + 重要知识点人工抽检 |
+| **未成年人保护** | 实名分级、时长限制、AIGC 标识、防沉迷；K12 学科类内容遵循"双减"红线（不提供校外培训属性服务） |
+| **GDPR / 网安法** | 数据最小化、目的限定、可导出、可删除、机器遗忘证明 |
+| **数据加密** | TLS 1.3 + AES-256 + 静态字段级加密（PII） |
+| **审计** | 所有 LLM 调用 trace 30 天、合规事件不可篡改日志 |
 
-```
-POST /api/v1/groups/create             # 创建群组
-GET  /api/v1/groups                    # 搜索群组
-POST /api/v1/groups/:id/join           # 加入群组
-POST /api/v1/groups/:id/leave          # 离开群组
-GET  /api/v1/groups/:id                # 群组详情
-POST /api/v1/groups/:id/share-knowledge # 共享知识
-GET  /api/v1/groups/:id/members        # 成员列表
-```
+## 12. 部署与可运维性
 
-### 8.7 社交
+- **多区域**：合规数据本地化（中国 / 欧盟 / 北美 各自独立 stack）
+- **多租户**：Postgres RLS + 命名空间隔离 + KG 租户标签
+- **SLA/SLO**：API p95 < 800ms（非 LLM）、< 5s（LLM 流式首字）；可用性 99.9%
+- **混沌工程**：定期演练 LLM provider 失效、KG 服务降级
+- **Feature flags**：所有新模型 / 新 prompt 灰度 + 一键回滚
 
-```
-POST /api/v1/discussions               # 发布讨论
-GET  /api/v1/discussions/:id           # 讨论详情
-POST /api/v1/discussions/:id/reply     # 回复
-GET  /api/v1/progress-comparison       # 进度对比
-GET  /api/v1/learning-partners         # 学习搭档匹配
-```
+## 13. 实施路线图
 
-### 8.8 游戏化
+| 阶段 | 周期 | 目标 |
+|---|---|---|
+| **M0 基线** | 4 周 | 评测集建立、GraphRAG MVP、单学科 KG 抽取通过 F1 0.80 |
+| **M1 教学法** | 6 周 | BKT + IRT 上线，CAT 诊断、ZPD 选题、FSRS 复习 |
+| **M2 Tutor** | 4 周 | 苏格拉底状态机 + injection 防御 + dialog 评测达标 |
+| **M3 AIGC** | 6 周 | 程序化动画 + 干扰项库 + 双 LLM/求解器校验 |
+| **M4 社区与合规** | 4 周 | 双轨内容池、机器遗忘、c2pa 标识、未成年人合规 |
+| **M5 规模化** | 持续 | 多学科扩展、成本优化、混沌演练 |
 
-```
-GET  /api/v1/achievements              # 成就列表
-GET  /api/v1/achievements/:id          # 成就详情
-GET  /api/v1/leaderboard               # 排行榜
-GET  /api/v1/gamification/stats         # 用户游戏化数据
-POST /api/v1/gamification/streak       # 更新streak
-```
+## 14. 后续步骤
 
-### 8.9 数据与隐私
+下一步基于本设计文档制定/更新详细实现计划，优先级：
 
-```
-GET  /api/v1/user/profile              # 用户资料
-PUT  /api/v1/user/profile              # 更新资料
-GET  /api/v1/user/privacy-settings     # 隐私设置
-PUT  /api/v1/user/privacy-settings     # 更新隐私设置
-GET  /api/v1/user/data                # 获取所有数据
-DELETE /api/v1/user/data               # 删除所有数据
-```
-
-## 9. 合规设计
-
-| 合规要求 | 实现方式 |
-|---------|---------|
-| **数据加密** | 传输 TLS 1.3，存储 AES-256 |
-| **用户主权** | 数据可导出、可删除、可撤回授权 |
-| **AI训练授权** | 用户同意后数据用于模型优化，可随时撤回 |
-| **GDPR** | 数据最小化、删除权、便携性、同意管理 |
-| **网络安全法** | 数据分类分级、加密传输、日志审计 |
-| **未成年人保护** | 实名认证、时长限制、内容过滤、家长监控接口 |
-
-## 10. 部署
-
-- **架构**：纯云端 SaaS，多租户
-- **容器化**：Docker + Kubernetes
-- **区域**：支持多区域部署，合规数据本地化
-- **监控**：日志审计、异常检测、SLA 保障
-
-## 11. 后续步骤
-
-下一步将基于本设计文档制定详细的实现计划，涵盖：
-- 知识图谱构建（基于 DeerFlow + MinerU）
-- 题库生成系统
-- 学习路径引擎
-- 游戏化与社交功能
-- 前端实现
+1. **GraphRAG 化的 KG 构建管线**（更新 [2026-05-04-knowledge-graph-from-textbooks.md](../plans/2026-05-04-knowledge-graph-from-textbooks.md)：加入三层 schema、Leiden 社区检测、BGE-M3 消歧、structured outputs、评测集）
+2. 教学法引擎（BKT/IRT/FSRS 服务）
+3. Tutor 状态机与对话评测集
+4. 程序化内容生成（Manim/Remotion）
+5. 评测 harness 与 CI 准入
 
 ---
 
-**文档状态**：已批准，可进入实现阶段
+**文档状态**：v2.0 已批准；进入实现阶段前需先建立评测集 (M0)。
