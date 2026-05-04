@@ -1,9 +1,9 @@
 from pydantic import BaseModel
 from typing import List
 
-from src.models.pedagogical import BloomLevel
-from src.models.textbook import Chapter
-from src.routing.structured_client import StructuredClient
+from app.kg.src.models.pedagogical import BloomLevel
+from app.kg.src.models.textbook import Chapter
+from app.kg.src.routing.structured_client import StructuredClient
 
 
 class _LearningObjective(BaseModel):

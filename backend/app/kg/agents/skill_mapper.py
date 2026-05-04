@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 from typing import List
 
-from src.models.diagnostic import QMatrixEntry
-from src.routing.structured_client import StructuredClient
+from app.kg.src.models.diagnostic import QMatrixEntry
+from app.kg.src.routing.structured_client import StructuredClient
 
 
 class SkillMappingResult(BaseModel):

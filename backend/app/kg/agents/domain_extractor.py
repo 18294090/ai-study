@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
-from src.models.entities import EntityType, RelationType
-from src.models.textbook import Chapter
-from src.routing.structured_client import StructuredClient
+from app.kg.src.models.entities import EntityType, RelationType
+from app.kg.src.models.textbook import Chapter
+from app.kg.src.routing.structured_client import StructuredClient
 
 
 class _Ent(BaseModel):
