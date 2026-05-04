@@ -66,8 +66,16 @@ async def extract_domain_node(state: PipelineState) -> PipelineState:
 
 
 async def _extract_domain_triples(chapter: Chapter) -> list:
-    await asyncio.sleep(0.01)
-    return []
+    from kg.agents.domain_extractor import DomainExtractor
+    from kg.src.llm_router import LLMRouter
+    try:
+        router = LLMRouter()
+        extractor = DomainExtractor(router.get_client())
+        result = extractor.extract(chapter, book_context="")
+        return [t.model_dump() for t in result.triples]
+    except Exception as e:
+        print(f"[extract_domain] failed for {chapter.chapter_id}: {e}")
+        return []
 
 
 async def tag_pedagogical_node(state: PipelineState) -> PipelineState:
@@ -93,8 +101,16 @@ async def tag_pedagogical_node(state: PipelineState) -> PipelineState:
 
 
 async def _tag_pedagogical(chapter: Chapter) -> list:
-    await asyncio.sleep(0.01)
-    return []
+    from kg.agents.pedagogical_tagger import PedagogicalTagger
+    from kg.src.llm_router import LLMRouter
+    try:
+        router = LLMRouter()
+        tagger = PedagogicalTagger(router.get_client())
+        result = tagger.tag(chapter, book_context="")
+        return [result.model_dump()]
+    except Exception as e:
+        print(f"[tag_pedagogical] failed for {chapter.chapter_id}: {e}")
+        return []
 
 
 async def map_skills_node(state: PipelineState) -> PipelineState:
@@ -120,8 +136,17 @@ async def map_skills_node(state: PipelineState) -> PipelineState:
 
 
 async def _map_skills(chapter: Chapter) -> list:
-    await asyncio.sleep(0.01)
-    return []
+    from kg.agents.skill_mapper import SkillMapper
+    from kg.src.llm_router import LLMRouter
+    try:
+        router = LLMRouter()
+        mapper = SkillMapper(router.get_client())
+        concept_names = [s.title for s in chapter.sections]
+        result = mapper.map_skills(concept_names, chapter.content[:500])
+        return [r.model_dump() for r in result.q_matrix_entries]
+    except Exception as e:
+        print(f"[map_skills] failed for {chapter.chapter_id}: {e}")
+        return []
 
 
 def fuse_node(state: PipelineState) -> PipelineState:
@@ -167,6 +192,35 @@ def eval_fail_report_node(state: PipelineState) -> PipelineState:
 
 
 def store_node(state: PipelineState) -> PipelineState:
+    from kg.src.storage.dual_writer import DualWriter
+    from kg.src.storage.neo4j_writer import Neo4jWriter
+    from kg.src.storage.qdrant_writer import QdrantWriter
+    from kg.src.config import get_config
+    import os
+
+    cfg = get_config()
+    neo4j_cfg = cfg.storage["neo4j"]
+    qdrant_cfg = cfg.storage["qdrant"]
+
+    neo4j = Neo4jWriter(
+        uri=os.environ.get(neo4j_cfg["uri_env"], "bolt://localhost:7687"),
+        user=os.environ.get(neo4j_cfg["user_env"], "neo4j"),
+        password=os.environ.get(neo4j_cfg["password_env"], ""),
+        database=neo4j_cfg.get("database", "neo4j"),
+    )
+    qdrant = QdrantWriter(
+        url=os.environ.get(qdrant_cfg["url_env"], "http://localhost:6333"),
+        collection=qdrant_cfg.get("collection", "textbook_chunks"),
+    )
+    writer = DualWriter(neo4j=neo4j, qdrant=qdrant)
+
+    triples = state.get("domain_triples", [])
+    for triple_data in triples:
+        try:
+            writer.write_triple(triple_data)
+        except Exception as e:
+            print(f"[store] triple write failed: {e}")
+
     return state
 
 
