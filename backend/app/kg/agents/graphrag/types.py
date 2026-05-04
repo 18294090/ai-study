@@ -69,6 +69,14 @@ class GenerationResult(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class AnalysisResult(BaseModel):
+    key_entities: List[str] = Field(default_factory=list)
+    connections_to_existing: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
+    structure_recommendations: str = ""
+    reasoning: str = ""
+
+
 class VerificationResult(BaseModel):
     is_valid: bool
     has_sufficient_citations: bool = True
