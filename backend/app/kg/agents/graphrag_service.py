@@ -54,7 +54,7 @@ class GraphRAGService:
             neo4j_driver=neo4j_driver,
             embedder=embedder,
         )
-        self.reranker = Reranker(api_key=self.api_key)
+        self.reranker = Reranker(api_key=self.api_key, neo4j_driver=neo4j_driver)
         self.generator = Generator(api_key=self.api_key)
         self.verifier = SelfRAGVerifier(api_key=self.api_key)
 
