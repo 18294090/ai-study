@@ -2,7 +2,7 @@
 
 > **Date:** 2026-05-04
 > **Status:** Approved
-> **Version:** 1.1（新增 AIGC 内容生成服务）
+> **Version:** 1.2（新增 AIGC 试题生成）
 
 ## 1. 核心理念
 
@@ -110,6 +110,14 @@ Relation Types: is_a, part_of, causes, relates_to, applies_to, before, after, si
 | **自动标注** | LLM 自动标注：知识点关联、难度(1-5)、题型、能力维度(布鲁姆) |
 | **智能组卷** | 根据目标知识点/难度/能力维度自动生成试卷 |
 | **题目检索** | 按知识点/难度/能力等多维度检索 |
+| **试题生成 (AIGC)** | 基于知识图谱自动生成新题目（选择/填空/解答/证明题） |
+| **题目改编** | 根据学习者水平自动改编题目难度 |
+| **答案解析生成** | 自动生成题目答案与详细解析 |
+
+**试题生成流程：**
+```
+知识点 → 学习者水平分析 → 题目类型选择 → AIGC 生成 → 质量校验 → 入库
+```
 
 ### 6.3 学习路径服务
 
@@ -332,6 +340,10 @@ GET  /api/v1/questions                # 搜索题目
 GET  /api/v1/questions/:id             # 题目详情
 POST /api/v1/exam/generate            # 智能组卷
 POST /api/v1/exam/submit              # 提交答案
+POST /api/v1/questions/generate        # AIGC 生成试题
+  - body: { knowledge_point, question_type, difficulty, count }
+  - response: { question_ids[] }
+POST /api/v1/questions/:id/regenerate # 题目改编
 ```
 
 ### 8.4 学习
