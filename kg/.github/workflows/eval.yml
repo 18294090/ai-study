@@ -1,0 +1,92 @@
+name: Knowledge Graph Extraction Evaluation
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'eval/**'
+      - '.github/workflows/eval.yml'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pydantic click
+
+      - name: Run evaluation
+        id: eval
+        run: |
+          python -c "
+          import json
+          import sys
+          sys.path.insert(0, 'src')
+
+          from eval.runner import run_eval
+          from eval.metrics import triple_prf
+
+          def dummy_extractor(text):
+              return []
+
+          result = run_eval(dummy_extractor, 'eval/kg_extraction_500.jsonl')
+          metrics = result['metrics']
+          sample_count = result['sample_count']
+
+          print(f'SAMPLE_COUNT={sample_count}')
+          print(f'F1={metrics[\"f1\"]}')
+
+          with open('.eval_result.json', 'w') as f:
+              json.dump({'sample_count': sample_count, 'f1': metrics['f1']}, f)
+          "
+
+      - name: Determine threshold and status
+        run: |
+          python -c "
+          import json
+          import sys
+          import os
+
+          with open('.eval_result.json', 'r') as f:
+              data = json.load(f)
+
+          sample_count = data['sample_count']
+          f1 = data['f1']
+
+          if sample_count < 200:
+              threshold = 0.65
+              stage = 1
+              if f1 < threshold:
+                  print(f'::notice::WARNING: F1={f1} below stage {stage} warning line {threshold}')
+                  with open('.eval_status.txt', 'w') as f:
+                      f.write('WARNING')
+                  sys.exit(0)
+              else:
+                  print(f'::notice::Stage {stage} passed: F1={f1} >= {threshold}')
+                  sys.exit(0)
+          elif sample_count < 500:
+              threshold = 0.72
+              stage = 2
+              if f1 < threshold:
+                  print(f'::error::F1={f1} below stage {stage} threshold {threshold}')
+                  sys.exit(1)
+              else:
+                  print(f'::notice::Stage {stage} passed: F1={f1} >= {threshold}')
+                  sys.exit(0)
+          else:
+              threshold = 0.80
+              stage = 3
+              if f1 < threshold:
+                  print(f'::error::F1={f1} below stage {stage} threshold {threshold}')
+                  sys.exit(1)
+              else:
+                  print(f'::notice::Stage {stage} passed: F1={f1} >= {threshold}')
+                  sys.exit(0)
+          "
