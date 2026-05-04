@@ -1,0 +1,123 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix edukg: <http://edukg.org.cn/ontology#> .
+
+# Base shape for all JY/T compliant entities
+<JY/T/EntityShape> a sh:NodeShape ;
+    sh:targetClass edukg:LearningPoint,
+                   edukg:EducationalMaterial,
+                   edukg:Question,
+                   edukg:LearningActivity,
+                   edukg:CurriculumRequirement ;
+    sh:property [
+        sh:path edukg:identifier ;
+        sh:minCount 1 ;
+        sh:pattern "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" ;
+        sh:message "identifier must be a valid UUID v4" ;
+    ] ;
+    sh:property [
+        sh:path rdfs:label ;
+        sh:minCount 1 ;
+        sh:message "title (rdfs:label) is required" ;
+    ] ;
+    sh:property [
+        sh:path edukg:subject ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path edukg:applicableLevel ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path edukg:cognitiveLevel ;
+        sh:in ( "remember" "understand" "apply" "analyze" "evaluate" "create" ) ;
+    ] .
+
+# LearningPoint specific constraints
+<JY/T/LearningPointShape> a sh:NodeShape ;
+    sh:targetClass edukg:LearningPoint ;
+    sh:property [
+        sh:path edukg:cognitiveLevel ;
+        sh:in ( "remember" "understand" "apply" "analyze" "evaluate" "create" ) ;
+        sh:message "cognitiveLevel must be one of: remember, understand, apply, analyze, evaluate, create" ;
+    ] .
+
+# EducationalMaterial constraints
+<JY/T/EducationalMaterialShape> a sh:NodeShape ;
+    sh:targetClass edukg:EducationalMaterial ;
+    sh:property [
+        sh:path edukg:subject ;
+        sh:minCount 1 ;
+        sh:message "EducationalMaterial must have a subject" ;
+    ] ;
+    sh:property [
+        sh:path edukg:applicableLevel ;
+        sh:minCount 1 ;
+        sh:message "EducationalMaterial must have applicableLevel" ;
+    ] .
+
+# Question constraints
+<JY/T/QuestionShape> a sh:NodeShape ;
+    sh:targetClass edukg:Question ;
+    sh:property [
+        sh:path edukg:questionType ;
+        sh:in ( "single_choice" "multiple_choice" "true_false" "short_answer" "essay" ) ;
+    ] .
+
+# LearningActivity constraints
+<JY/T/LearningActivityShape> a sh:NodeShape ;
+    sh:targetClass edukg:LearningActivity ;
+    sh:property [
+        sh:path edukg:activityType ;
+        sh:in ( "lecture" "discussion" "experiment" "practice" "project" "self_study" ) ;
+    ] .
+
+# CurriculumRequirement constraints - must inherit from DisciplinaryKeyCompetency
+<JY/T/CurriculumRequirementShape> a sh:NodeShape ;
+    sh:targetClass edukg:CurriculumRequirement ;
+    sh:property [
+        sh:path rdfs:subClassOf ;
+        sh:hasValue edukg:DisciplinaryKeyCompetency ;
+        sh:message "CurriculumRequirement must be a subclass of DisciplinaryKeyCompetency" ;
+    ] .
+
+# Property shapes
+<JY/T/identifierProperty> a sh:PropertyShape ;
+    sh:path edukg:identifier ;
+    sh:minCount 1 ;
+    sh:pattern "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" .
+
+<JY/T/titleProperty> a sh:PropertyShape ;
+    sh:path rdfs:label ;
+    sh:minCount 1 .
+
+<JY/T/subjectProperty> a sh:PropertyShape ;
+    sh:path edukg:subject ;
+    sh:maxCount 1 .
+
+<JY/T/levelProperty> a sh:PropertyShape ;
+    sh:path edukg:applicableLevel ;
+    sh:maxCount 1 .
+
+<JY/T/cognitiveProperty> a sh:PropertyShape ;
+    sh:path edukg:cognitiveLevel ;
+    sh:in ( "remember" "understand" "apply" "analyze" "evaluate" "create" ) .
+
+# Relation constraints
+<JY/T/hasChildRelation> a sh:PropertyShape ;
+    sh:path edukg:hasChild ;
+    sh:class edukg:LearningPoint .
+
+<JY/T/isRelatedToRelation> a sh:PropertyShape ;
+    sh:path edukg:isRelatedTo ;
+    sh:class edukg:LearningPoint .
+
+<JY/T/isEquivalentToRelation> a sh:PropertyShape ;
+    sh:path edukg:isEquivalentTo ;
+    sh:class edukg:LearningPoint .
+
+<JY/T/includesRelation> a sh:PropertyShape ;
+    sh:path edukg:includes ;
+    sh:class edukg:LearningPoint .

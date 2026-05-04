@@ -1,0 +1,152 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix edukg: <http://edukg.org.cn/ontology#> .
+
+# JY/T Ontology for Basic Education Knowledge Graph
+# Based on 《基础教育知识图谱建设技术规范》JY/T XXXX—XXXX
+
+# Eight top-level classes
+edukg:LearningPoint a owl:Class ;
+    rdfs:label "知识点" ;
+    rdfs:comment "The smallest unit of knowledge in the education domain" .
+
+edukg:EducationalMaterial a owl:Class ;
+    rdfs:label "教学资料" ;
+    rdfs:comment "Teaching and learning materials including textbooks, chapters, sections" .
+
+edukg:Question a owl:Class ;
+    rdfs:label "题目" ;
+    rdfs:comment "Assessment questions in the question bank" .
+
+edukg:LearningActivity a owl:Class ;
+    rdfs:label "学习活动" ;
+    rdfs:comment "Learning activities such as objectives, lessons, activities" .
+
+edukg:CurriculumRequirement a owl:Class ;
+    rdfs:label "课程要求" ;
+    rdfs:subClassOf edukg:DisciplinaryKeyCompetency ;
+    rdfs:comment "Curriculum standard nodes per §6.5.2, extends DisciplinaryKeyCompetency" .
+
+edukg:DisciplinaryKeyCompetency a owl:Class ;
+    rdfs:label "学科关键能力" ;
+    rdfs:comment "Disciplinary key competencies as defined in the standard" .
+
+edukg:TeachingMaterial a owl:Class ;
+    rdfs:label "教材" ;
+    rdfs:subClassOf edukg:EducationalMaterial ;
+    rdfs:comment "Teaching materials as subclass of EducationalMaterial" .
+
+edukg:Assessment a owl:Class ;
+    rdfs:label "测评" ;
+    rdfs:comment "Assessment related entities" .
+
+# Standard properties
+edukg:identifier a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range xsd:string ;
+    rdfs:label "标识符" ;
+    rdfs:comment "UUID v4 identifier for the entity" .
+
+edukg:subject a owl:DatatypeProperty ;
+    rdfs:domain edukg:EducationalMaterial ;
+    rdfs:range xsd:string ;
+    rdfs:label "学科" ;
+    rdfs:comment "Subject classification code from JY/T 0644" .
+
+edukg:applicableLevel a owl:DatatypeProperty ;
+    rdfs:domain edukg:EducationalMaterial ;
+    rdfs:range xsd:string ;
+    rdfs:label "适用学段" ;
+    rdfs:comment "Applicable level code from JY/T 0644 learner classification" .
+
+edukg:cognitiveLevel a owl:DatatypeProperty ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range xsd:string ;
+    rdfs:label "认知水平" ;
+    rdfs:comment "Cognitive level: remember, understand, apply, analyze, evaluate, create" .
+
+edukg:questionType a owl:DatatypeProperty ;
+    rdfs:domain edukg:Question ;
+    rdfs:range xsd:string ;
+    rdfs:label "题目类型" .
+
+edukg:activityType a owl:DatatypeProperty ;
+    rdfs:domain edukg:LearningActivity ;
+    rdfs:range xsd:string ;
+    rdfs:label "活动类型" .
+
+edukg:contentJson a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range xsd:string ;
+    rdfs:label "内容JSON" ;
+    rdfs:comment "JSON string containing additional content" .
+
+# Standard object properties (relations)
+edukg:isPrerequisiteFor a owl:ObjectProperty ;
+    rdfs:label "前置知识" ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "Knowledge A is a prerequisite for knowledge B" .
+
+edukg:hasChild a owl:ObjectProperty ;
+    owl:inverseOf edukg:hasParent ;
+    rdfs:label "包含子节点" ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "A broader/narrower relationship. A hasChild B means B is a child of A" .
+
+edukg:hasParent a owl:ObjectProperty ;
+    owl:inverseOf edukg:hasChild ;
+    rdfs:label "父节点" ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range edukg:LearningPoint .
+
+edukg:isRelatedTo a owl:ObjectProperty ;
+    rdfs:label "相关知识" ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "Symmetric relation for related knowledge points" .
+
+edukg:isEquivalentTo a owl:ObjectProperty ;
+    rdfs:label "等价于" ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "Strong equivalence relation between knowledge points" .
+
+edukg:includes a owl:ObjectProperty ;
+    rdfs:label "包含" ;
+    rdfs:domain edukg:LearningPoint ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "A includes B means B is part of A" .
+
+edukg:hasRelatedKnowledgePoint a owl:ObjectProperty ;
+    rdfs:label "关联知识点" ;
+    rdfs:domain edukg:EducationalMaterial ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "Material teaches or relates to a knowledge point" .
+
+edukg:hasRelatedQuestion a owl:ObjectProperty ;
+    rdfs:label "关联题目" ;
+    rdfs:domain edukg:EducationalMaterial ;
+    rdfs:range edukg:Question ;
+    rdfs:comment "Material assesses or has related questions" .
+
+edukg:requiresKnowledgePoint a owl:ObjectProperty ;
+    rdfs:label "要求掌握知识点" ;
+    rdfs:domain edukg:CurriculumRequirement ;
+    rdfs:range edukg:LearningPoint ;
+    rdfs:comment "Curriculum requirement requires mastery of knowledge points" .
+
+edukg:hasSupplementaryEducationalMaterial a owl:ObjectProperty ;
+    rdfs:label "补充教学资料" ;
+    rdfs:domain edukg:EducationalMaterial ;
+    rdfs:range edukg:EducationalMaterial ;
+    rdfs:comment "Supplementary materials relationship" .
+
+# Ontology metadata
+edukg: a owl:Ontology ;
+    rdfs:label "基础教育知识图谱本体" ;
+    rdfs:comment "JY/T Standard ontology for basic education knowledge graph" ;
+    owl:versionInfo "1.0" .
