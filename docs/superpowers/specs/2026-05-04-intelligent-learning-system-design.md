@@ -2,7 +2,7 @@
 
 > **Date:** 2026-05-04
 > **Status:** Approved
-> **Version:** 1.0
+> **Version:** 1.1（新增 AIGC 内容生成服务）
 
 ## 1. 核心理念
 
@@ -30,6 +30,11 @@
 │       └─────────────┴─────────────┴─────────────┘              │
 │                           │                                    │
 │  ┌────────────────────────┼─────────────────────────────┐    │
+│  │              内容生成服务 (AIGC)                       │    │
+│  │  • 视频生成   • 图片生成   • 文字内容生成             │    │
+│  └────────────────────────┬─────────────────────────────┘    │
+│                           │                                    │
+│  ┌────────────────────────┼─────────────────────────────┐    │
 │  │              游戏化 + 成就系统                          │    │
 │  └────────────────────────┬─────────────────────────────┘    │
 │                           │                                    │
@@ -38,7 +43,7 @@
 │  │  • PostgreSQL (核心数据)                               │    │
 │  │  • Neo4j (知识图谱)                                     │    │
 │  │  • Redis (缓存)                                        │    │
-│  │  • S3 (静态资源)                                       │    │
+│  │  • S3 (静态资源/生成的视频/图片)                       │    │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
          │
@@ -63,6 +68,10 @@
 | **后端框架** | FastAPI / LangGraph |
 | **前端** | React + Tailwind |
 | **部署** | Docker + Kubernetes (云端) |
+| **视频生成** | Sora / Pika / Runway / 自研视频生成模型 |
+| **图片生成** | DALL-E / Midjourney / Stable Diffusion |
+| **文字生成** | GPT-4o / Claude / 专项微调模型 |
+| **内容审核** | AI 自动化审核 + 人工复核机制 |
 
 ## 5. 用户角色设计
 
@@ -150,7 +159,49 @@ Relation Types: is_a, part_of, causes, relates_to, applies_to, before, after, si
 | **跨学科关联** | 主动展示知识点在其他学科的应用 |
 | **遗忘曲线** | 根据艾宾浩斯遗忘曲线安排复习 |
 
-### 6.8 监控与报告
+### 6.8 内容生成服务 (AIGC)
+
+基于知识图谱和用户学情，自动生成多模态学习资料。
+
+| 功能 | 描述 | 技术方案 |
+|------|------|----------|
+| **视频生成** | 根据知识点自动生成教学视频 | Sora / Pika / Runway / 自研视频生成 |
+| **图片生成** | 生成知识点插图、流程图、示意图 | DALL-E / Midjourney / Stable Diffusion |
+| **文字生成** | 生成知识点讲解、案例分析、学习指南 | GPT-4o / Claude / 专项微调模型 |
+| **互动内容** | 生成测验、填空、排序等互动练习 | 规则引擎 + LLM |
+| **个性化适配** | 根据学习者水平和偏好调整内容形式 | 学情分析 + 内容适配引擎 |
+
+**内容生成流程：**
+```
+知识图谱中的知识点
+       ↓
+   学情诊断（学习者当前水平）
+       ↓
+   内容规划（选择合适的媒体形式）
+       ↓
+   AIGC 生成（视频/图片/文字/互动）
+       ↓
+   质量审核（AI + 人工审核）
+       ↓
+   内容发布（进入学习推荐池）
+```
+
+**支持的内容类型：**
+
+| 类型 | 示例 |
+|------|------|
+| **教学视频** | "三角函数"知识点 → 3分钟动画讲解视频 |
+| **知识点图解** | "光合作用" → 细胞结构示意图 + 流程图 |
+| **学习指南** | "辛亥革命" → 时间轴 + 关键人物 + 影响分析 |
+| **互动测验** | "二次方程" → 选择/填空/解答互动练习题 |
+| **案例分析** | "经济学原理" → 真实案例 + 讨论问题 |
+
+**质量控制：**
+- AI 生成内容需经过准确性校验
+- 重要知识点支持人工审核流程
+- 用户可反馈内容质量，帮助持续优化
+
+### 6.9 监控与报告
 
 | 功能 | 描述 |
 |------|------|
@@ -236,6 +287,18 @@ Gamification:
   - streak_days: int
   - achievements: List[str]
   - leaderboard_position: int
+
+Content:
+  - id: str
+  - knowledge_point: str
+  - content_type: str (video/image/text/interactive)
+  - url: str (S3 storage URL)
+  - generated_by: str (user_id / AI)
+  - target_level: str (beginner/intermediate/advanced)
+  - status: str (generating/ready/archived)
+  - quality_score: float
+  - usage_count: int
+  - created_at: datetime
 ```
 
 ## 8. API 设计
@@ -277,10 +340,23 @@ POST /api/v1/exam/submit              # 提交答案
 POST /api/v1/learning/diagnosis        # 学情诊断
 GET  /api/v1/learning/path             # 获取学习路径
 GET  /api/v1/learning/progress         # 学习进度
-GET  /api/v1/learning/recommendations  # 内容推荐
+GET  /api/v1/learning/recommendations   # 内容推荐
 ```
 
-### 8.5 群组（去中心化）
+### 8.5 内容生成 (AIGC)
+
+```
+POST /api/v1/content/generate          # 生成学习资料
+  - body: { knowledge_point, content_type: video/image/text/interactive, target_level }
+  - response: { content_id, status, estimated_time }
+
+GET  /api/v1/content/:id               # 获取生成的内容
+GET  /api/v1/content/templates         # 获取内容模板
+POST /api/v1/content/:id/feedback      # 用户反馈内容质量
+GET  /api/v1/content/pool               # 内容池（可搜索）
+```
+
+### 8.6 群组（去中心化）
 
 ```
 POST /api/v1/groups/create             # 创建群组
@@ -292,7 +368,7 @@ POST /api/v1/groups/:id/share-knowledge # 共享知识
 GET  /api/v1/groups/:id/members        # 成员列表
 ```
 
-### 8.6 社交
+### 8.7 社交
 
 ```
 POST /api/v1/discussions               # 发布讨论
@@ -302,7 +378,7 @@ GET  /api/v1/progress-comparison       # 进度对比
 GET  /api/v1/learning-partners         # 学习搭档匹配
 ```
 
-### 8.7 游戏化
+### 8.8 游戏化
 
 ```
 GET  /api/v1/achievements              # 成就列表
@@ -312,7 +388,7 @@ GET  /api/v1/gamification/stats         # 用户游戏化数据
 POST /api/v1/gamification/streak       # 更新streak
 ```
 
-### 8.8 数据与隐私
+### 8.9 数据与隐私
 
 ```
 GET  /api/v1/user/profile              # 用户资料
