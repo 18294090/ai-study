@@ -16,6 +16,7 @@ from .routes.mastery import router as mastery_router
 from .routes.tutor import router as tutor_router
 from .routes.irt import router as irt_router
 from .routes.fsrs import router as fsrs_router
+from .routes.expert_reviewer import router as expert_reviewer_router
 
 api_v1_router = APIRouter()
 
@@ -37,4 +38,5 @@ api_v1_router.include_router(mastery_router, prefix="/mastery", tags=["mastery"]
 api_v1_router.include_router(tutor_router, prefix="/tutor", tags=["tutor"])
 api_v1_router.include_router(irt_router, prefix="/irt", tags=["irt"])
 api_v1_router.include_router(fsrs_router, prefix="/fsrs", tags=["fsrs"])
+api_v1_router.include_router(expert_reviewer_router, prefix="/expert-reviewer", tags=["expert-reviewer"])
 
