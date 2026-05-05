@@ -174,7 +174,8 @@ class DualWriter:
     def _rollback_entity(self, entity):
         with self.neo4j._driver.session(database=self.neo4j.database) as session:
             labels = self.neo4j._entity_labels(entity)
-            session.run(f"MATCH (n{labels} {entity.id}) DELETE n")
+            cypher = f"MATCH (n{labels}) WHERE n.id = $entity_id DELETE n"
+            session.run(cypher, entity_id=entity.id)
 
     def _rollback_community(self, community_id: str):
         with self.neo4j._driver.session(database=self.neo4j.database) as session:

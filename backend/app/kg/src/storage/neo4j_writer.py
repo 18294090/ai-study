@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 from dataclasses import dataclass, field
 import logging
@@ -24,6 +25,7 @@ class Neo4jWriter:
             self.uri,
             auth=(self.user, self.password)
         )
+        self._valid_rel_type = re.compile(r'^[A-Za-z0-9_]+$')
 
     def close(self):
         if self._driver:
@@ -235,45 +237,50 @@ class Neo4jWriter:
     def write_triples_batch(self, triples: List[KnowledgeTriple]) -> int:
         if not triples:
             return 0
+        
+        written = 0
         with self._driver.session(database=self.database) as session:
-            data = []
             for t in triples:
                 s_labels = self._entity_labels(t.subject)
                 o_labels = self._entity_labels(t.object)
-                rel_props = {
-                    "predicate": t.predicate.value,
-                    "confidence": t.confidence,
-                    "extracted_by": t.extracted_by,
-                    "verified_by": t.verified_by,
-                    **self._anchor_props(t.anchor),
-                }
-                rel_props = {k: v for k, v in rel_props.items() if v is not None}
-                data.append({
-                    "s_labels": s_labels,
-                    "o_labels": o_labels,
+                rel_type = t.predicate.value
+                
+                if not self._valid_rel_type.match(rel_type):
+                    raise ValueError(f"Invalid relationship type '{rel_type}': must be alphanumeric with underscores only")
+                
+                anchor_props = self._anchor_props(t.anchor)
+                anchor_props_filtered = {k: v for k, v in anchor_props.items() if v is not None}
+                
+                params = {
                     "s_id": t.subject.id,
                     "s_name": t.subject.name,
                     "s_type": t.subject.type.value,
                     "o_id": t.object.id,
                     "o_name": t.object.name,
                     "o_type": t.object.type.value,
-                    "rel_props": rel_props,
-                })
-            cypher = """
-            UNWIND $data AS row
-            MERGE (s:row.s_labels {id: row.s_id})
-            ON CREATE SET s.name = row.s_name, s.type = row.s_type
-            MERGE (o:row.o_labels {id: row.o_id})
-            ON CREATE SET o.name = row.o_name, o.type = row.o_type
-            CREATE (s)-[r:`row.rel_props.predicate`]->(o)
-            WITH row, r
-            UNWIND keys(row.rel_props) AS key
-            WHERE key <> 'predicate'
-            SET r[key] = row.rel_props[key]
-            RETURN count(r) AS written
-            """
-            result = session.run(cypher, data=data)
-            return result.single()["written"]
+                    "confidence": t.confidence,
+                    "extracted_by": t.extracted_by,
+                    "verified_by": t.verified_by,
+                    **anchor_props_filtered,
+                }
+                params = {k: v for k, v in params.items() if v is not None}
+                
+                cypher = f"""
+                MERGE (s:{s_labels} {{id: $s_id}})
+                ON CREATE SET s.name = $s_name, s.type = $s_type
+                MERGE (o:{o_labels} {{id: $o_id}})
+                ON CREATE SET o.name = $o_name, o.type = $o_type
+                MERGE (s)-[r:`{rel_type}`]->(o)
+                ON CREATE SET r.confidence = $confidence, r.extracted_by = $extracted_by, r.verified_by = $verified_by
+                ON MATCH SET r.confidence = $confidence, r.extracted_by = $extracted_by, r.verified_by = $verified_by
+                RETURN count(r) AS written
+                """
+                
+                result = session.run(cypher, **params)
+                if result.single():
+                    written += 1
+        
+        return written
 
     def write_community(self, community_id: str, level: int, summary: str) -> bool:
         with self._driver.session(database=self.database) as session:

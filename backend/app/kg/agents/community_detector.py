@@ -1,7 +1,7 @@
 from neo4j import Driver
 from pydantic import BaseModel
 from typing import List, Optional
-from src.routing.structured_client import StructuredClient
+from ..src.routing.structured_client import StructuredClient
 
 
 class CommunitySummary(BaseModel):

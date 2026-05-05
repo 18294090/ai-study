@@ -84,7 +84,7 @@ class Reranker:
             doc_sources.append(("vector", v))
 
         for e in kg_entities:
-            neighbors_text = " ". join([n.target_name for n in e.neighbors])
+            neighbors_text = " ".join([n.target_name for n in e.neighbors])
             all_docs.append({"text": f"{e.name}: {e.description or ''} {neighbors_text}", "id": e.entity_id, "type": "kg"})
             doc_sources.append(("kg", e))
 

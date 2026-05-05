@@ -22,8 +22,8 @@ async def process_knowledge_extraction(
     subject_id: int,
     user_id: int
 ):
-    from kg.src.parsers.multi_parser import create_multi_parser
-    from kg.agents.lead_agent import run_pipeline
+from app.kg.src.parsers.multi_parser import create_multi_parser
+from app.kg.agents.lead_agent import run_pipeline
     from kg.src.config import get_config
     import os
 

@@ -22,9 +22,6 @@ class IncrementalUpdater:
     def compute_diff(
         self, textbook_id: str, old_version: str, new_version: str
     ) -> list[TripleDiff]:
-        from py2neo import Graph
-
-        graph = Graph(self.driver)
         old_cypher = (
             f"MATCH (s)-[r]->(o) "
             f"WHERE s.textbook_id = '{textbook_id}' AND s.version = '{old_version}' "
@@ -36,8 +33,12 @@ class IncrementalUpdater:
             f"RETURN s.uri AS subj, type(r) AS pred, o.uri AS obj"
         )
 
-        old_triples = set(graph.run(old_cypher).to_table().to_rows())
-        new_triples = set(graph.run(new_cypher).to_table().to_rows())
+        with self.driver.session(database="neo4j") as s:
+            old_result = s.run(old_cypher).data()
+            new_result = s.run(new_cypher).data()
+
+        old_triples = set((r["subj"], r["pred"], r["obj"]) for r in old_result)
+        new_triples = set((r["subj"], r["pred"], r["obj"]) for r in new_result)
 
         diffs = []
         for t in new_triples - old_triples:

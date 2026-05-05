@@ -139,7 +139,7 @@ class GraphRAGService:
         intent = state.get("intent")
         if intent is None:
             return "hybrid"
-        if intent.intent in (Intent.FACTUAL, Intent.PROCEDURAL):
+        if state["intent"].intent in (Intent.FACTUAL, Intent.PROCEDURAL):
             return "hybrid"
         return "community"
 

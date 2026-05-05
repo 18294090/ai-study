@@ -2,8 +2,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import get_current_user
 from app.models.user import User
-from kg.agents.kg_linter import KGLinter
-from kg.src.storage.neo4j_writer import Neo4jWriter
+from app.kg.agents.kg_linter import KGLinter
+from app.kg.src.storage.neo4j_writer import Neo4jWriter
 import os
 
 router = APIRouter()

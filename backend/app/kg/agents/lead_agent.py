@@ -18,13 +18,9 @@ class PipelineState(TypedDict):
 
 
 def parse_node(state: PipelineState) -> PipelineState:
-    from app.kg.src.parsers.multi_parser import MultiParserVote
-
-    textbook_id = state["textbook_id"]
-    chapters = state.get("chapters", [])
-    if chapters:
-        return state
-    raise NotImplementedError("parse_node requires a PDF path - use parser directly")
+    if not state.get("chapters"):
+        raise ValueError("parse_node requires chapters in state")
+    return state
 
 
 async def _extract_with_retry(
@@ -151,7 +147,21 @@ async def _map_skills(chapter: Chapter) -> list:
 
 
 def fuse_node(state: PipelineState) -> PipelineState:
-    state["resolved_entities"] = []
+    triples = state.get("domain_triples", [])
+    resolved = []
+    seen = set()
+
+    for t in triples:
+        key = (
+            t.get("subject", ""),
+            t.get("predicate", ""),
+            t.get("object", "")
+        )
+        if key not in seen:
+            seen.add(key)
+            resolved.append(t)
+
+    state["resolved_entities"] = resolved
     return state
 
 
@@ -186,11 +196,33 @@ def check_contradictions_node(state: PipelineState) -> PipelineState:
 
 
 def verify_node(state: PipelineState) -> PipelineState:
+    verified_count = len(state.get("domain_triples", []))
+    print(f"[verify] passed through {verified_count} triples")
     return state
 
 
 def detect_communities_node(state: PipelineState) -> PipelineState:
-    state["communities"] = []
+    from app.kg.agents.community_detector import CommunityDetector
+    from app.kg.src.storage.neo4j_writer import Neo4jWriter
+    from app.kg.src.config import get_config
+    import os
+
+    cfg = get_config()
+    neo4j_cfg = cfg.storage.get("neo4j", {})
+    neo4j_driver = Neo4jWriter(
+        uri=os.environ.get(neo4j_cfg.get("uri_env", "NEO4J_URI"), "bolt://localhost:7687"),
+        user=os.environ.get(neo4j_cfg.get("user_env", "NEO4J_USER"), "neo4j"),
+        password=os.environ.get(neo4j_cfg.get("password_env", "NEO4J_PASSWORD"), ""),
+    )
+
+    detector = CommunityDetector(neo4j_driver._driver, None)
+    try:
+        communities = detector.detect()
+        state["communities"] = communities
+        print(f"[detect_communities] found {len(communities)} communities")
+    except Exception as e:
+        print(f"[detect_communities] failed: {e}")
+        state["communities"] = []
     return state
 
 
@@ -256,6 +288,24 @@ def store_node(state: PipelineState) -> PipelineState:
 
 
 def compliance_export_node(state: PipelineState) -> PipelineState:
+    import json
+    import pathlib
+
+    textbook_id = state.get("textbook_id", "unknown")
+    out = pathlib.Path(f"eval/compliance/{textbook_id}.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    export_data = {
+        "textbook_id": textbook_id,
+        "domain_triples": state.get("domain_triples", []),
+        "pedagogical": state.get("pedagogical", []),
+        "skills": state.get("skills", []),
+        "communities": state.get("communities", []),
+        "eval_passed": state.get("eval_passed", False),
+    }
+
+    out.write_text(json.dumps(export_data, ensure_ascii=False, indent=2))
+    print(f"[compliance_export] exported to {out}")
     return state
 
 
