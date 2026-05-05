@@ -12,8 +12,7 @@ from pathlib import Path
 from app.db.session import get_db
 from app.models.question import Question, QuestionComment
 from app.schemas.question import QuestionCreate, QuestionResponse, CommentCreate, QuestionUpdate
-from app.core.auth import get_current_user, get_current_active_user
-from app.core.permissions import user_required  
+from app.core.auth import get_current_user, get_current_active_user  
 from app.models.user import User
 from app.models.knowledge import KnowledgePoint
 # 导入exam_parser
@@ -76,29 +75,6 @@ async def get_questions(
     result = await db.execute(query.offset(skip).limit(limit))
     questions = result.scalars().all()
     return questions
-
-@router.post("/", response_model=QuestionResponse)
-async def create_question(
-    question: QuestionCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_active_user)
-):
-    """创建新题目"""
-    # 创建题目对象，富文本内容已包含在question中
-    db_question = Question(**question.dict(exclude={"knowledge_point_ids"}), author_id=current_user.id)    
-    # 处理知识点关联
-    if question.knowledge_point_ids:
-        # 查询知识点
-        knowledge_point_query = select(KnowledgePoint).filter(
-            KnowledgePoint.id.in_(question.knowledge_point_ids)
-        )
-        result = await db.execute(knowledge_point_query)
-        knowledge_points = result.scalars().all()
-        db_question.knowledge_points = knowledge_points
-    db.add(db_question)
-    await db.commit()
-    await db.refresh(db_question)
-    return db_question
 
 @router.get("/search", response_model=List[QuestionResponse])
 async def search_questions(
