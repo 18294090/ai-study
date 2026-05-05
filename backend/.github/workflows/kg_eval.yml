@@ -20,11 +20,11 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pytest pytest-asyncio
-          cd backend && pip install -e . 2>/dev/null || true
+          cd backend && pip install -e . || echo "WARNING: Backend installation failed, continuing anyway..."
 
       - name: Write eval script
         run: |
-          echo aW1wb3J0IHN5cwpzeXMucGF0aC5pbnNlcnQoMCwgImFwcC9rZyIpCmZyb20gc3JjLmV2YWwucnVubmVyIGltcG9ydCBydW5fZXZhbApmcm9tIHNyYy5ldmFsLm1ldHJpY3MgaW1wb3J0IHRyaXBsZV9wcmYsIGFnZ3JlZ2F0ZV9tZXRyaWNzCmltcG9ydCBqc29uCgpkZWYgZXh0cmFjdG9yKHRleHQpOgogICAgcmV0dXJuIFtdCgpyZXN1bHQgPSBydW5fZXZhbCgKICAgIGV4dHJhY3Rvcj1leHRyYWN0b3IsCiAgICBkYXRhc2V0X3BhdGg9J2RhdGEvZXZhbC9rZ190cmlwbGVzX3NhbXBsZS5qc29uJ2AKKQptZXRyaWNzID0gcmVzdWx0WyJtZXRyaWNzIl0KcHJpbnQoIlByZWNpc2lvbiIsIG1ldHJpY3NbInByZWNpc2lvbiJdKQpwcmludCgiUmVjYWxsIiwgbWV0cmljc1sicmVjYWxsIl0pCnByaW50KCJGMSIsIG1ldHJpY3NbImYxIl0pCgpmMSA9IG1ldHJpY3NbImYxIl0KdGhyZXNob2xkID0gMC44MAppZiBmMSA+PSB0aHJlc2hvbGQ6CiAgICBwcmludCgiUEFTUzogRj0iLCBmMSwgIiA+PSAiLCB0aHJlc2hvbGQpCiAgICBzeXMuZXhpdCgwKQplbHNlOgogICAgcHJpbnQoIkZBSUw6IEY9IiwgZjEsICIgPCAiLCB0aHJlc2hvbGQpCiAgICBzeXMuZXhpdCgxKQo= | base64 -d > /tmp/run_eval.py
+          printf 'import sys\nsys.path.insert(0, "app/kg")\nfrom src.eval.runner import run_eval\nfrom src.eval.metrics import triple_prf, aggregate_metrics\nimport json\n\ndef extractor(text):\n    return []\n\nresult = run_eval(\n    extractor=extractor,\n    dataset_path="data/eval/kg_triples_sample.json"\n)\nmetrics = result["metrics"]\nprint("Precision", metrics["precision"])\nprint("Recall", metrics["recall"])\nprint("F1", metrics["f1"])\n\nf1 = metrics["f1"]\nthreshold = 0.80\nif f1 >= threshold:\n    print("PASS: F=", f1, " >= ", threshold)\n    sys.exit(0)\nelse:\n    print("FAIL: F=", f1, " < ", threshold)\n    sys.exit(1)\n' > /tmp/run_eval.py
 
       - name: Run KG Triple Evaluation
         run: |
@@ -49,7 +49,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install ruff
+        run: pip install pytest pytest-asyncio
 
       - name: Lint
         run: |
@@ -62,4 +62,4 @@ jobs:
       - name: Run unit tests
         run: |
           cd backend
-          python3 -m pytest app/kg/tests/test_models.py -v --tb=short 2>/dev/null || echo "Tests completed"
+          python3 -m pytest app/kg/tests/test_models.py -v --tb=short
