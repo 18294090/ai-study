@@ -2,7 +2,13 @@ from typing import Protocol, List, Dict, Tuple, Optional
 from collections import Counter
 import hashlib
 
-from src.models import Textbook, Chapter, Section
+from ..models import Textbook, Chapter, Section
+
+from .mineru_parser import MinerUParser
+from .marker_parser import MarkerParser
+from .nougat_parser import NougatParser
+from .unimernet_parser import UniMERNetParser
+from .docling_parser import DoclingParser
 
 
 class TextbookParser(Protocol):
@@ -114,3 +120,30 @@ class MultiParserVote:
             page_start=best.page_start,
             page_end=best.page_end,
         )
+
+
+PARSER_REGISTRY: Dict[str, type] = {
+    "mineru": MinerUParser,
+    "marker": MarkerParser,
+    "nougat": NougatParser,
+    "unimernet": UniMERNetParser,
+    "docling": DoclingParser,
+}
+
+
+def create_parser(name: str, device: str = "cuda") -> TextbookParser:
+    if name not in PARSER_REGISTRY:
+        available = ", ".join(PARSER_REGISTRY.keys())
+        raise ValueError(f"Unknown parser '{name}'. Available: {available}")
+    return PARSER_REGISTRY[name](device=device)
+
+
+def create_multi_parser(
+    parser_names: Optional[List[str]] = None,
+    device: str = "cuda",
+) -> MultiParserVote:
+    if parser_names is None:
+        parser_names = list(PARSER_REGISTRY.keys())
+
+    parsers = [create_parser(name, device) for name in parser_names]
+    return MultiParserVote(parsers)
