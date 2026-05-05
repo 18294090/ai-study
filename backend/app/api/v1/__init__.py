@@ -13,6 +13,7 @@ from .routes.classes import router as classes_router
 from .routes.resources import router as resources_router
 from .routes.knowledge_extraction import router as knowledge_extraction_router
 from .routes.mastery import router as mastery_router
+from .routes.tutor import router as tutor_router
 
 api_v1_router = APIRouter()
 
@@ -31,4 +32,5 @@ api_v1_router.include_router(files_router, tags=["files"])
 api_v1_router.include_router(books_router, prefix="/books", tags=["books"])
 api_v1_router.include_router(applications_router, prefix="/applications", tags=["applications"])
 api_v1_router.include_router(mastery_router, prefix="/mastery", tags=["mastery"])
+api_v1_router.include_router(tutor_router, prefix="/tutor", tags=["tutor"])
 
