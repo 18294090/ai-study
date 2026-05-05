@@ -22,12 +22,11 @@ async def process_knowledge_extraction(
     subject_id: int,
     user_id: int
 ):
-from app.kg.src.parsers.multi_parser import create_multi_parser
-from app.kg.agents.lead_agent import run_pipeline
-    from kg.src.config import get_config
-    import os
-
     try:
+        from app.kg.src.parsers.multi_parser import create_multi_parser
+        from app.kg.agents.lead_agent import run_pipeline
+        from app.kg.src.config import get_config
+
         textbook = create_multi_parser().parse(file_path)
         textbook.textbook_id = f"textbook_{subject_id}_{user_id}"
         textbook.subject = str(subject_id)
