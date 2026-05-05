@@ -19,3 +19,4 @@ backend/media/
 .vscode/
 .idea/
 .worktrees/
+.poetry-venv/
