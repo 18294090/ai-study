@@ -68,6 +68,50 @@ class Neo4jWriter:
     def init_schema(self):
         with self._driver.session(database=self.database) as session:
             self._ensure_constraints(session)
+            self.init_oplog_schema()
+
+    def init_oplog_schema(self):
+        with self._driver.session(database=self.database) as session:
+            session.run("CREATE INDEX FOR (l:OperationLog) ON (l.timestamp) IF NOT EXISTS")
+            session.run("CREATE INDEX FOR (l:OperationLog) ON (l.target_id) IF NOT EXISTS")
+            session.run("CREATE INDEX FOR (l:OperationLog) ON (l.operation) IF NOT EXISTS")
+        logger.info("OperationLog schema ensured")
+
+    def log_operation(
+        self,
+        operation: str,
+        target_id: str,
+        target_type: str,
+        user_id: str = "system",
+        details: str = "{}",
+        textbook_id: str = None,
+        reasoning: str = "",
+    ) -> bool:
+        with self._driver.session(database=self.database) as session:
+            cypher = """
+            CREATE (l:OperationLog {
+                timestamp: datetime(),
+                operation: $operation,
+                target_id: $target_id,
+                target_type: $target_type,
+                user_id: $user_id,
+                details: $details,
+                textbook_id: $textbook_id,
+                reasoning: $reasoning
+            })
+            RETURN l
+            """
+            session.run(
+                cypher,
+                operation=operation,
+                target_id=target_id,
+                target_type=target_type,
+                user_id=user_id,
+                details=details,
+                textbook_id=textbook_id,
+                reasoning=reasoning,
+            )
+        return True
 
     def _entity_labels(self, entity) -> str:
         type_label = entity.type.value
@@ -99,6 +143,14 @@ class Neo4jWriter:
             props = {k: v for k, v in props.items() if v is not None}
             cypher = f"CREATE (n{labels} $props) RETURN n"
             session.run(cypher, props=props)
+        self.log_operation(
+            operation="create_entity",
+            target_id=entity.id,
+            target_type="entity",
+            user_id=getattr(entity, "created_by", "system"),
+            details=entity.model_dump_json(),
+            textbook_id=getattr(entity.anchor, "textbook_id", None) if entity.anchor else None,
+        )
         return True
 
     def write_entities_batch(self, entities: List[Entity]) -> int:
@@ -170,6 +222,14 @@ class Neo4jWriter:
                 **rel_props,
             }
             session.run(cypher, **params)
+        self.log_operation(
+            operation="create_triple",
+            target_id=f"{triple.subject.id}-{triple.predicate.value}-{triple.object.id}",
+            target_type="triple",
+            user_id=triple.extracted_by or "system",
+            details=triple.model_dump_json(),
+            textbook_id=getattr(triple.anchor, "textbook_id", None) if triple.anchor else None,
+        )
         return True
 
     def write_triples_batch(self, triples: List[KnowledgeTriple]) -> int:
