@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from pydantic import BaseModel
+from sqlalchemy import select, func
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
+from app.models.fsrs import FSRSCard, FSRSReviewLog, CardState, ReviewRating
+from app.services.fsrs_scheduler import FSRSScheduler, FSRSOptimizer, ScheduleResult
 
-router = APIRouter()
+router = APIRouter(prefix="/fsrs", tags=["fsrs"])
 
 
 class CreateCardRequest(BaseModel):
@@ -65,44 +67,32 @@ class StatsResponse(BaseModel):
     average_interval: float
 
 
-class FSRSState:
-    NEW = "new"
-    LEARNING = "learning"
-    REVIEW = "review"
-    RELARNING = "relearning"
+scheduler = FSRSScheduler()
 
 
-class FSRSMemory:
-    def __init__(self, stability: float = 0.0, difficulty: float = 0.0):
-        self.stability = stability
-        self.difficulty = difficulty
-
-    def record_review(self, rating: int, response_time: float) -> tuple[float, float, float]:
-        if rating >= 3:
-            new_stability = self.stability * (1 + 0.1 * (rating - 3) - 0.05 * response_time / 1000)
-            new_stability = max(0.1, new_stability)
-        else:
-            new_stability = self.stability * (0.5 - 0.1 * rating)
-            new_stability = max(0.1, new_stability)
-
-        if rating >= 3:
-            new_difficulty = self.difficulty + 0.1 * (rating - 3) - 0.02
-        else:
-            new_difficulty = self.difficulty + 0.1 * (rating - 2)
-
-        new_difficulty = max(0.1, min(5.0, new_difficulty))
-
-        interval = new_stability * 1.5 if rating >= 3 else 0.1
-        retrievability = 1.0 - 0.5 ** (1.0 / new_stability)
-
-        self.stability = new_stability
-        self.difficulty = new_difficulty
-
-        return interval, new_stability, retrievability
+def _compute_retrievability(stability: float, elapsed_days: float) -> float:
+    """计算可回忆性 R(t) = exp((t - s) / (-9))"""
+    import math
+    if stability <= 0:
+        return 0.0
+    return math.exp(-elapsed_days / stability)
 
 
-_in_memory_cards: dict[int, dict] = {}
-_card_id_counter = 1
+def _card_to_dataclass(card: FSRSCard) -> "FSRSCard":
+    """Convert ORM model to scheduler dataclass"""
+    from app.services.fsrs_scheduler import FSRSCard as SchedulerCard
+    return SchedulerCard(
+        id=card.id,
+        user_id=card.user_id,
+        concept_id=card.concept_id,
+        stability=card.stability,
+        difficulty=card.difficulty,
+        state=card.state,
+        lapses=card.lapses,
+        reps=card.reps,
+        due=card.due or datetime.utcnow(),
+        last_review=card.last_review
+    )
 
 
 @router.post("/cards", response_model=CardResponse, status_code=201)
@@ -111,32 +101,32 @@ async def create_card(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    global _card_id_counter
-
     stability = request.initial_stability if request.initial_stability is not None else 0.5
     difficulty = request.initial_difficulty if request.initial_difficulty is not None else 2.5
 
-    card = {
-        "card_id": _card_id_counter,
-        "user_id": request.user_id,
-        "concept_id": request.concept_id,
-        "state": FSRSState.NEW,
-        "stability": stability,
-        "difficulty": difficulty,
-        "interval": 0.0,
-        "due": datetime.now(timezone.utc),
-    }
-    _in_memory_cards[_card_id_counter] = card
-    _card_id_counter += 1
+    card = FSRSCard(
+        user_id=request.user_id,
+        concept_id=request.concept_id,
+        state=CardState.NEW.value,
+        stability=stability,
+        difficulty=difficulty,
+        interval=0.0,
+        due=datetime.now(timezone.utc),
+        reps=0,
+        lapses=0
+    )
+    db.add(card)
+    await db.commit()
+    await db.refresh(card)
 
     return CardResponse(
-        card_id=card["card_id"],
-        user_id=card["user_id"],
-        concept_id=card["concept_id"],
-        state=card["state"],
-        stability=card["stability"],
-        interval=card["interval"],
-        due=card["due"],
+        card_id=card.id,
+        user_id=card.user_id,
+        concept_id=card.concept_id,
+        state=card.state,
+        stability=card.stability,
+        interval=card.interval,
+        due=card.due
     )
 
 
@@ -149,56 +139,103 @@ async def review_card(
     if request.rating < 1 or request.rating > 4:
         raise HTTPException(status_code=400, detail="Rating must be between 1 and 4")
 
-    card = _in_memory_cards.get(request.card_id)
+    result = await db.execute(
+        select(FSRSCard).filter(FSRSCard.id == request.card_id)
+    )
+    card = result.scalar_one_or_none()
+
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
 
-    memory = FSRSMemory(stability=card["stability"], difficulty=card["difficulty"])
-    interval, new_stability, retrievability = memory.record_review(request.rating, request.response_time)
+    scheduler_card = _card_to_dataclass(card)
+    schedule_result = scheduler.schedule(scheduler_card, request.rating)
 
-    next_due = datetime.now(timezone.utc).replace(microsecond=0)
-    if interval >= 1:
-        from datetime import timedelta
-        next_due = datetime.now(timezone.utc) + timedelta(days=interval)
-    else:
-        from datetime import timedelta
-        next_due = datetime.now(timezone.utc) + timedelta(minutes=interval * 1440)
+    now = datetime.now(timezone.utc)
+    elapsed_days = 0.0
+    if card.last_review:
+        elapsed_days = (now - card.last_review).total_seconds() / 86400
 
-    card["stability"] = new_stability
-    card["interval"] = interval
-    card["due"] = next_due
-    card["state"] = FSRSState.REVIEW if request.rating >= 3 else FSRSState.LEARNING
+    old_retrievability = _compute_retrievability(card.stability, elapsed_days) if card.stability > 0 else 0.0
+
+    card.stability = schedule_result.next_stability
+    card.difficulty = schedule_result.next_difficulty
+    card.interval = schedule_result.next_interval
+    card.due = schedule_result.due
+    card.last_review = now
+    card.last_result = {1: "again", 2: "hard", 3: "good", 4: "easy"}.get(request.rating)
+    card.reps += 1
+    if request.rating == 1:
+        card.lapses += 1
+
+    new_retrievability = 0.9
+
+    log = FSRSReviewLog(
+        card_id=card.id,
+        user_id=card.user_id,
+        reviewed_at=now,
+        rating=request.rating,
+        response_time=request.response_time,
+        stability_delta=schedule_result.next_stability - scheduler_card.stability,
+        new_interval=schedule_result.next_interval,
+        new_stability=schedule_result.next_stability,
+        retention=new_retrievability
+    )
+    db.add(log)
+    await db.commit()
+    await db.refresh(card)
 
     return ReviewResponse(
-        card_id=card["card_id"],
-        next_interval=interval,
-        next_due=next_due,
-        stability=new_stability,
-        retrievability=retrievability,
+        card_id=card.id,
+        next_interval=schedule_result.next_interval,
+        next_due=schedule_result.due,
+        stability=schedule_result.next_stability,
+        retrievability=new_retrievability
     )
 
 
 @router.get("/due/{user_id}", response_model=DueResponse)
 async def get_due_cards(
     user_id: int,
+    limit: int = 20,
+    concept_ids: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     now = datetime.now(timezone.utc)
-    due_cards = []
 
-    for card in _in_memory_cards.values():
-        if card["user_id"] == user_id and card["due"] <= now:
-            due_cards.append(DueCardResponse(
-                card_id=card["card_id"],
-                concept_id=card["concept_id"],
-                state=card["state"],
-                due=card["due"],
-                interval=card["interval"],
-                stability=card["stability"],
-            ))
+    stmt = select(FSRSCard).filter(
+        FSRSCard.user_id == user_id,
+        FSRSCard.due <= now
+    )
 
-    return DueResponse(cards=due_cards, total_due=len(due_cards))
+    if concept_ids:
+        concept_id_list = [int(x) for x in concept_ids.split(",")]
+        stmt = stmt.filter(FSRSCard.concept_id.in_(concept_id_list))
+
+    stmt = stmt.order_by(FSRSCard.due.asc()).limit(limit)
+    result = await db.execute(stmt)
+    cards = result.scalars().all()
+
+    due_cards = [
+        DueCardResponse(
+            card_id=c.id,
+            concept_id=c.concept_id,
+            state=c.state,
+            due=c.due,
+            interval=c.interval,
+            stability=c.stability
+        )
+        for c in cards
+    ]
+
+    count_stmt = select(func.count(FSRSCard.id)).filter(
+        FSRSCard.user_id == user_id,
+        FSRSCard.due <= now
+    )
+    total_result = await db.execute(count_stmt)
+    total_due = total_result.scalar() or 0
+
+    return DueResponse(cards=due_cards, total_due=total_due)
 
 
 @router.get("/stats/{user_id}", response_model=StatsResponse)
@@ -207,31 +244,34 @@ async def get_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    user_cards = [c for c in _in_memory_cards.values() if c["user_id"] == user_id]
+    result = await db.execute(
+        select(FSRSCard).filter(FSRSCard.user_id == user_id)
+    )
+    cards = result.scalars().all()
 
-    if not user_cards:
+    if not cards:
         return StatsResponse(
             user_id=user_id,
             total_cards=0,
             cards_by_state={},
             average_stability=0.0,
-            average_interval=0.0,
+            average_interval=0.0
         )
 
     states = {}
-    for card in user_cards:
-        state = card["state"]
+    for card in cards:
+        state = card.state
         states[state] = states.get(state, 0) + 1
 
-    avg_stability = sum(c["stability"] for c in user_cards) / len(user_cards)
-    avg_interval = sum(c["interval"] for c in user_cards) / len(user_cards)
+    avg_stability = sum(c.stability for c in cards) / len(cards)
+    avg_interval = sum(c.interval for c in cards) / len(cards)
 
     return StatsResponse(
         user_id=user_id,
-        total_cards=len(user_cards),
+        total_cards=len(cards),
         cards_by_state=states,
         average_stability=avg_stability,
-        average_interval=avg_interval,
+        average_interval=avg_interval
     )
 
 
@@ -241,8 +281,15 @@ async def delete_card(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if card_id not in _in_memory_cards:
+    result = await db.execute(
+        select(FSRSCard).filter(FSRSCard.id == card_id)
+    )
+    card = result.scalar_one_or_none()
+
+    if not card:
         raise HTTPException(status_code=404, detail="Card not found")
 
-    del _in_memory_cards[card_id]
+    await db.delete(card)
+    await db.commit()
+
     return {"message": "Card deleted successfully"}
