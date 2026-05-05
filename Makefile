@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format clean backup
+.PHONY: install dev test lint format clean backup eval eval-sample
 
 # Python backend
 BACKEND=backend
@@ -58,6 +58,29 @@ shell:
 status:
 	@echo "=== Backend Status ==="
 	@cd $(BACKEND) && poetry show -- tree 2>/dev/null || poetry show
+
+# Run evaluation
+eval:
+	@echo "Running KG triple evaluation..."
+	@cd backend && python3 -c "
+import sys
+sys.path.insert(0, 'app/kg')
+from src.eval.runner import run_eval
+
+def extractor(text):
+    return []
+
+result = run_eval(
+    extractor=extractor,
+    dataset_path='data/eval/kg_triples_sample.jsonl'
+)
+metrics = result['metrics']
+print(f'Metrics: {metrics}')
+"
+
+eval-sample:
+	@echo "Sample evaluation dataset location: backend/data/eval/"
+	@cd backend && python3 -c "import json; f=open('data/eval/kg_triples_sample.jsonl'); print(f'Entries: {len(f.readlines())}')"
 
 # Help
 help:
