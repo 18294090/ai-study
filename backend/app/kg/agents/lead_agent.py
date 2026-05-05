@@ -14,6 +14,7 @@ class PipelineState(TypedDict):
     communities: list
     eval_passed: bool
     eval_report: dict
+    contradictions: list
 
 
 def parse_node(state: PipelineState) -> PipelineState:
@@ -154,6 +155,36 @@ def fuse_node(state: PipelineState) -> PipelineState:
     return state
 
 
+def check_contradictions_node(state: PipelineState) -> PipelineState:
+    from app.kg.agents.contradiction_detector import ContradictionDetector
+    from app.kg.src.storage.neo4j_writer import Neo4jWriter
+    from app.kg.src.config import get_config
+    import os
+
+    cfg = get_config()
+    neo4j_cfg = cfg.storage.get("neo4j", {})
+    neo4j_driver = Neo4jWriter(
+        uri=os.environ.get(neo4j_cfg.get("uri_env", "NEO4J_URI"), "bolt://localhost:7687"),
+        user=os.environ.get(neo4j_cfg.get("user_env", "NEO4J_USER"), "neo4j"),
+        password=os.environ.get(neo4j_cfg.get("password_env", "NEO4J_PASSWORD"), ""),
+    )
+
+    triples = state.get("domain_triples", [])
+    if not triples:
+        return state
+
+    textbook_id = state.get("textbook_id", "")
+    detector = ContradictionDetector(neo4j_driver=neo4j_driver._driver)
+    contradictions = detector.detect(triples, textbook_id)
+
+    high_severity = [c for c in contradictions if c.severity >= 0.5]
+    if high_severity:
+        print(f"[contradiction] {len(high_severity)} contradictions flagged for review")
+
+    state["contradictions"] = [c.model_dump() for c in contradictions]
+    return state
+
+
 def verify_node(state: PipelineState) -> PipelineState:
     return state
 
@@ -235,6 +266,7 @@ def build_graph():
     g.add_node("tag_pedagogical", tag_pedagogical_node)
     g.add_node("map_skills", map_skills_node)
     g.add_node("fuse", fuse_node)
+    g.add_node("check_contradictions", check_contradictions_node)
     g.add_node("verify", verify_node)
     g.add_node("detect_communities", detect_communities_node)
     g.add_node("eval_gate", eval_gate_node)
@@ -246,9 +278,10 @@ def build_graph():
     g.add_edge("parse", "extract_domain")
     g.add_edge("parse", "tag_pedagogical")
     g.add_edge("parse", "map_skills")
-    g.add_edge("extract_domain", "fuse")
-    g.add_edge("tag_pedagogical", "fuse")
-    g.add_edge("map_skills", "fuse")
+    g.add_edge("extract_domain", "check_contradictions")
+    g.add_edge("tag_pedagogical", "check_contradictions")
+    g.add_edge("map_skills", "check_contradictions")
+    g.add_edge("check_contradictions", "fuse")
     g.add_edge("fuse", "verify")
     g.add_edge("verify", "detect_communities")
     g.add_edge("detect_communities", "eval_gate")
