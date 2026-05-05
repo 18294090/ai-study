@@ -1,37 +1,47 @@
-.PHONY: install dev test lint format clean backup eval eval-sample
+.PHONY: all install dev test lint format clean backup eval eval-sample migrate migration shell status help ensure-poetry
 
 # Python backend
 BACKEND=backend
-POETRY=$(shell which poetry 2>/dev/null || echo "pip install poetry && poetry")
+POETRY_VENV=$(CURDIR)/.poetry-venv
+POETRY=$(POETRY_VENV)/bin/poetry
 
 # Default target
 all: install
 
+# Ensure Poetry is available (without relying on poetry being on PATH)
+ensure-poetry:
+	@if [ ! -x "$(POETRY)" ]; then \
+		echo "Poetry not found, bootstrapping local toolchain in $(POETRY_VENV)..."; \
+		python3 -m venv "$(POETRY_VENV)"; \
+		"$(POETRY_VENV)/bin/pip" install --upgrade pip >/dev/null; \
+		"$(POETRY_VENV)/bin/pip" install poetry >/dev/null; \
+	fi
+
 # Install dependencies
-install:
+install: ensure-poetry
 	@echo "Installing backend dependencies..."
-	cd $(BACKEND) && poetry install
-	@echo "Done! Activate with: poetry shell"
+	cd $(BACKEND) && $(POETRY) install
+	@echo "Done! Activate with: $(POETRY) shell"
 
 # Development mode
-dev:
+dev: ensure-poetry
 	@echo "Starting backend in dev mode..."
-	cd $(BACKEND) && poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd $(BACKEND) && $(POETRY) run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Run tests
-test:
+test: ensure-poetry
 	@echo "Running tests..."
-	cd $(BACKEND) && poetry run pytest -v
+	cd $(BACKEND) && $(POETRY) run pytest -v
 
 # Lint
-lint:
+lint: ensure-poetry
 	@echo "Running lint..."
-	cd $(BACKEND) && poetry run ruff check app/
+	cd $(BACKEND) && $(POETRY) run ruff check app/
 
 # Format code
-format:
+format: ensure-poetry
 	@echo "Formatting code..."
-	cd $(BACKEND) && poetry run ruff format app/
+	cd $(BACKEND) && $(POETRY) run ruff format app/
 
 # Clean cache
 clean:
@@ -41,42 +51,28 @@ clean:
 	find $(BACKEND) -type f -name "*.pyc" -delete 2>/dev/null || true
 
 # Database migrations
-migrate:
+migrate: ensure-poetry
 	@echo "Running migrations..."
-	cd $(BACKEND) && poetry run alembic upgrade head
+	cd $(BACKEND) && $(POETRY) run alembic upgrade head
 
 # Create migration
-migration:
+migration: ensure-poetry
 	@echo "Creating migration..."
-	cd $(BACKEND) && poetry run alembic revision --autogenerate -m "$(NAME)"
+	cd $(BACKEND) && $(POETRY) run alembic revision --autogenerate -m "$(NAME)"
 
 # Shell
-shell:
-	cd $(BACKEND) && poetry run python
+shell: ensure-poetry
+	cd $(BACKEND) && $(POETRY) run python
 
 # Backend status
-status:
+status: ensure-poetry
 	@echo "=== Backend Status ==="
-	@cd $(BACKEND) && poetry show -- tree 2>/dev/null || poetry show
+	@cd $(BACKEND) && $(POETRY) show -- tree 2>/dev/null || $(POETRY) show
 
 # Run evaluation
 eval:
 	@echo "Running KG triple evaluation..."
-	@cd backend && python3 -c "
-import sys
-sys.path.insert(0, 'app/kg')
-from src.eval.runner import run_eval
-
-def extractor(text):
-    return []
-
-result = run_eval(
-    extractor=extractor,
-    dataset_path='data/eval/kg_triples_sample.jsonl'
-)
-metrics = result['metrics']
-print(f'Metrics: {metrics}')
-"
+	@cd $(BACKEND) && python3 -c "import sys; sys.path.insert(0, 'app/kg'); from src.eval.runner import run_eval; extractor = lambda text: []; result = run_eval(extractor=extractor, dataset_path='data/eval/kg_triples_sample.jsonl'); metrics = result['metrics']; print(f'Metrics: {metrics}')"
 
 eval-sample:
 	@echo "Sample evaluation dataset location: backend/data/eval/"
