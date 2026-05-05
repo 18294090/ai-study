@@ -5,6 +5,14 @@ BACKEND=backend
 POETRY_VENV=$(CURDIR)/.poetry-venv
 POETRY=$(POETRY_VENV)/bin/poetry
 
+# CUDA version (default: cu124 for CUDA 12.4)
+# Override with: make install CUDA_VERSION=cu118
+CUDA_VERSION ?= cu124
+
+# Pip mirrors (domestic for speed)
+PIP_INDEX        = https://pypi.tuna.tsinghua.edu.cn/simple
+PIP_EXTRA_INDEX  = https://download.pytorch.org/whl/$(CUDA_VERSION)
+
 # Default target
 all: install
 
@@ -12,16 +20,37 @@ all: install
 ensure-poetry:
 	@if [ ! -x "$(POETRY)" ]; then \
 		echo "Poetry not found, bootstrapping local toolchain in $(POETRY_VENV)..."; \
+		rm -rf "$(POETRY_VENV)"; \
 		python3 -m venv "$(POETRY_VENV)"; \
-		"$(POETRY_VENV)/bin/pip" install --upgrade pip >/dev/null; \
-		"$(POETRY_VENV)/bin/pip" install poetry >/dev/null; \
+		SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+		REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+		PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+		"$(POETRY_VENV)/bin/pip" install --quiet --upgrade pip -i $(PIP_INDEX); \
+		SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+		REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+		PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+		"$(POETRY_VENV)/bin/pip" install --quiet poetry -i $(PIP_INDEX); \
 	fi
 
-# Install dependencies
+# Install dependencies (default: CUDA $(CUDA_VERSION))
+# For CPU-only: make install CUDA_VERSION=cpu
 install: ensure-poetry
-	@echo "Installing backend dependencies..."
-	cd $(BACKEND) && $(POETRY) install
-	@echo "Done! Activate with: $(POETRY) shell"
+	@echo "Installing backend dependencies (CUDA=$(CUDA_VERSION))..."
+	@cd $(BACKEND) && \
+	$(POETRY) config installer.max-workers 10 && \
+	$(POETRY) config repositories.pytorch-cuda https://download.pytorch.org/whl/$(CUDA_VERSION) && \
+	for i in 1 2 3; do \
+		echo "Poetry install attempt $$i/3 (CUDA=$(CUDA_VERSION))..."; \
+		PIP_INDEX_URL=$(PIP_INDEX) \
+		PIP_EXTRA_INDEX_URL=$(PIP_EXTRA_INDEX) \
+		PIP_DEFAULT_TIMEOUT=300 \
+		POETRY_REQUESTS_TIMEOUT=300 \
+		$(POETRY) install --no-interaction && exit 0; \
+		echo "Attempt $$i failed, retrying..."; \
+	done; \
+	echo "Failed after 3 attempts. Try: make install CUDA_VERSION=cpu"; \
+	exit 1
+	@echo "Done! CUDA=$(CUDA_VERSION). Activate: $(POETRY) shell"
 
 # Development mode
 dev: ensure-poetry

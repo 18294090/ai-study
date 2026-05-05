@@ -8,6 +8,7 @@ from app.models.base import Base
 class TutorSession(Base):
     __tablename__ = "tutor_sessions"
 
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=False, index=True)
     concept_id = Column(String, nullable=False, index=True)
     current_state = Column(String, nullable=False, default="diagnose")
@@ -24,7 +25,8 @@ class TutorSession(Base):
 class TutorMessage(Base):
     __tablename__ = "tutor_messages"
 
-    session_id = Column(Integer, ForeignKey("tutor_sessions.id"))
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("tutor_sessions.id"), index=True)
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     hint_level = Column(Integer, nullable=True)
@@ -37,6 +39,7 @@ class TutorMessage(Base):
 class TutorHintTemplate(Base):
     __tablename__ = "tutor_hint_templates"
 
+    id = Column(Integer, primary_key=True, index=True)
     concept_id = Column(String, nullable=False, index=True)
     hint_level = Column(Integer, nullable=False)
     template_text = Column(Text, nullable=False)

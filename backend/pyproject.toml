@@ -8,7 +8,9 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.12"
 
-# FastAPI core
+# PyTorch CUDA 12.4 (from pytorch-cuda source)
+torch = {version = "^2.5.0", source = "pytorch-cuda"}
+torchvision = {version = "^0.20.0", source = "pytorch-cuda"}
 fastapi = "^0.116.1"
 uvicorn = {extras = ["standard"], version = "^0.27.1"}
 pydantic = {extras = ["email"], version = "^2.5.3"}
@@ -44,7 +46,7 @@ langchain-core = "^0.1.20"
 langchain-community = "^0.0.20"
 
 # Embedding & Rerank
-FlagEmbedding = "^1.2.10"
+FlagEmbedding = {version = "^1.2.10", extras = ["gpu"]}
 cohere = "^5.0.0"
 
 # PDF Parsing
@@ -79,6 +81,17 @@ mypy = "^1.8.0"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+# ── 镜像源配置 ──────────────────────────────────────────────────────────────
+[[tool.poetry.source]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "explicit"
 
 [tool.ruff]
 target-version = "py312"
