@@ -14,6 +14,7 @@ from app.utils.exception_handlers import setup_exception_handlers # 导入异常
 # 临时路由，直到我们创建实际的 API 路由
 from app.api.v1 import api_v1_router
 from fastapi_mcp import FastApiMCP
+from app.mcp.server import register_mcp_tools
 # 导入所有模型确保它们被注册
 import app.models
 from app.db.neo4j_utils import driver, close_driver
@@ -113,8 +114,9 @@ def create_application() -> FastAPI:
         """健康检查接口"""
         return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
     
-    # 创建并挂载 MCP 服务器
-    mcp_server = FastApiMCP(application)
+    # Create and mount MCP server
+    mcp_server = FastApiMCP(application, name="EducationalKG", description="MCP server for educational knowledge graph")
+    register_mcp_tools(mcp_server)
     mcp_server.mount(mount_path="/mcp")
     return application
 # 创建FastAPI应用实例
