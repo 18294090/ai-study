@@ -158,3 +158,48 @@ async def extract_knowledge_from_file(
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
+
+
+@router.post("/exam/compare")
+async def compare_exam_extraction(
+    file: UploadFile = File(...),
+    use_hermes: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Compare Hermes vs LangGraph exam extraction."""
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    temp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(temp_dir, file.filename)
+
+    try:
+        await file.seek(0)
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        results = {}
+
+        if use_hermes:
+            from app.hermes.skills.exam_skill import run_exam_skill
+            hermes_result = await run_exam_skill({"file_path": file_path})
+            results["hermes"] = hermes_result
+
+        if use_hermes:
+            from app.services.exam_parser.agent.exam_agent import ExamAgent
+            agent = ExamAgent(file_path)
+            langgraph_result = agent.run()
+            results["langgraph"] = langgraph_result
+
+        return {
+            "hermes": results.get("hermes", {}),
+            "langgraph": results.get("langgraph", {}),
+            "comparison_available": True,
+        }
+
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        os.rmdir(temp_dir)
