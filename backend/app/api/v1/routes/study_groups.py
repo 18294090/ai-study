@@ -44,7 +44,11 @@ class AddMemberRequest(BaseModel):
 
 
 @router.post("/", response_model=GroupResponse)
-async def create_group(request: CreateGroupRequest, db: AsyncSession, current_user: User):
+async def create_group(
+    request: CreateGroupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """创建学习小组"""
     group = StudyGroup(
         name=request.name,
@@ -113,7 +117,11 @@ async def list_groups(
 
 
 @router.get("/{group_id}", response_model=GroupResponse)
-async def get_group(group_id: int, db: AsyncSession, current_user: User):
+async def get_group(
+    group_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """获取小组详情"""
     result = await db.execute(select(StudyGroup).filter(StudyGroup.id == group_id))
     group = result.scalar_one_or_none()
@@ -133,7 +141,12 @@ async def get_group(group_id: int, db: AsyncSession, current_user: User):
 
 
 @router.post("/{group_id}/members")
-async def add_member(group_id: int, request: AddMemberRequest, db: AsyncSession, current_user: User):
+async def add_member(
+    group_id: int,
+    request: AddMemberRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """添加成员到小组"""
     result = await db.execute(select(StudyGroup).filter(StudyGroup.id == group_id))
     group = result.scalar_one_or_none()
@@ -162,7 +175,11 @@ async def add_member(group_id: int, request: AddMemberRequest, db: AsyncSession,
 
 
 @router.get("/{group_id}/members")
-async def list_members(group_id: int, db: AsyncSession, current_user: User):
+async def list_members(
+    group_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """列出小组成员"""
     result = await db.execute(
         select(StudyGroupMember).filter(StudyGroupMember.group_id == group_id)
@@ -180,7 +197,12 @@ async def list_members(group_id: int, db: AsyncSession, current_user: User):
 
 
 @router.delete("/{group_id}/members/{user_id}")
-async def remove_member(group_id: int, user_id: int, db: AsyncSession, current_user: User):
+async def remove_member(
+    group_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """移除成员 (仅小组创建者可操作)"""
     result = await db.execute(select(StudyGroup).filter(StudyGroup.id == group_id))
     group = result.scalar_one_or_none()
@@ -208,7 +230,11 @@ async def remove_member(group_id: int, user_id: int, db: AsyncSession, current_u
 
 
 @router.delete("/{group_id}")
-async def delete_group(group_id: int, db: AsyncSession, current_user: User):
+async def delete_group(
+    group_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """删除小组 (仅创建者可操作)"""
     result = await db.execute(select(StudyGroup).filter(StudyGroup.id == group_id))
     group = result.scalar_one_or_none()
