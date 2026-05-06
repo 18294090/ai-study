@@ -15,8 +15,8 @@ from app.schemas.question import QuestionCreate, QuestionResponse, CommentCreate
 from app.core.auth import get_current_user, get_current_active_user  
 from app.models.user import User
 from app.models.knowledge import KnowledgePoint
-# 导入exam_parser
-from app.services.exam_parser import parse_pdf
+# 导入exam_parser (Agent-based extraction)
+from app.services.exam_parser import run_exam_agent_sync
 # 导入向量化服务
 from app.services.question_vectorization import vectorize_questions_batch, search_similar_questions
 from app.models.VectorStore import QuestionVectorResponse
@@ -111,65 +111,31 @@ async def search_questions(
     return result.scalars().all()
 
 async def process_file_import(file_path: str, file_type: str, user_id: int, subject_id: Optional[int], db: AsyncSession):
-    """处理文件导入的后台任务"""
-    img_dir = None
+    """处理文件导入的后台任务 - 使用 Agent-based extraction"""
     try:
-        print(f"Processing {file_type} import for user {user_id}...")        
-        # 使用backend/uploads目录保存图片
-        import os
-        from pathlib import Path
-        uploads_dir = Path(__file__).parent.parent.parent / "uploads"
-        uploads_dir.mkdir(exist_ok=True)
-        
-        # 创建以用户ID和时间戳命名的子目录
-        import time
-        timestamp = int(time.time())
-        img_dir = uploads_dir / f"user_{user_id}_{timestamp}"
-        img_dir.mkdir(exist_ok=True)        
-        # 根据文件类型调用相应的解析器 (统一使用MinerU)
+        print(f"Processing {file_type} import for user {user_id}...")
+
+        # 根据文件类型调用相应的解析器 (统一使用 MinerU + Agent)
         if file_type == 'pdf':
-            questions = parse_pdf(file_path, str(img_dir))
-        elif file_type in ['docx', 'doc', 'png', 'jpg', 'jpeg']:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type for exam parsing: {file_type}. Only PDF is supported.")
+            result = run_exam_agent_sync(file_path, source=file_path)
+            questions_data = result.get("questions", [])
+            print(f"Agent extracted {len(questions_data)} questions, report: {result.get('report', {})}")
         else:
-            raise ValueError(f"Unsupported file type: {file_type}")
-        
-        # 处理题目内容中的图片路径
-        for question in questions:
-            if question.配图:  # 配图是图片路径列表
-                # 将绝对路径转换为相对路径（相对于uploads目录）
-                relative_images = []
-                for img_path in question.配图:
-                    if os.path.isabs(img_path):
-                        # 转换为相对于uploads目录的路径
-                        try:
-                            img_path_obj = Path(img_path)
-                            relative_path = img_path_obj.relative_to(uploads_dir)
-                            relative_images.append(f"/uploads/{relative_path}")
-                        except ValueError:
-                            # 如果无法转换为相对路径，保持原路径
-                            relative_images.append(img_path)
-                    else:
-                        relative_images.append(f"/uploads/{img_path}")
-                question.配图 = relative_images
-            
-            # 同时更新content中的图片路径
-            if question.内容 and '<img src=' in question.内容:
-                import re
-                def replace_img_src(match):
-                    src = match.group(1)
-                    if os.path.isabs(src):
-                        try:
-                            src_obj = Path(src)
-                            relative_path = src_obj.relative_to(uploads_dir)
-                            return f"<img src='/uploads/{relative_path}'>"
-                        except ValueError:
-                            return match.group(0)
-                    else:
-                        return f"<img src='/uploads/{src}'>"
-                
-                question.内容 = re.sub(r"<img src='([^']+)'", replace_img_src, question.内容)
-                question.内容 = re.sub(r'<img src="([^"]+)"', replace_img_src, question.内容)
+            raise HTTPException(status_code=400, detail=f"Unsupported file type for exam parsing: {file_type}. Only PDF is supported.")
+
+        # Convert agent output to Question objects
+        from app.services.exam_parser import Question
+        questions = []
+        for q_data in questions_data:
+            content = q_data.get("内容", "")
+            questions.append(Question(
+                内容=content,
+                来源=q_data.get("页码", "unknown"),
+                题型=q_data.get("题型", "未知"),
+                配图=q_data.get("配图", []),
+                材料=q_data.get("材料", ""),
+                题号=q_data.get("id"),
+            ))
         
         # 将解析的题目进行向量化并存储到向量数据库
         question_vectors = await vectorize_questions_batch(
@@ -187,14 +153,12 @@ async def process_file_import(file_path: str, file_type: str, user_id: int, subj
         await db.rollback()
         raise
     finally:
-        # 清理上传的临时文件，但保留uploads目录中的图片
+        # 清理上传的临时文件
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
         except Exception:
             pass  # 忽略删除失败的错误
-            import shutil
-            shutil.rmtree(img_dir)
 
 @router.post("/batch-import")
 async def batch_import_questions(
@@ -204,9 +168,9 @@ async def batch_import_questions(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_active_user)  # 临时改为普通用户权限
 ):
-    """批量导入题目,接收pdf，word，图片文件"""
-    # 检查文件类型
-    allowed_extensions = ['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg']
+    """批量导入题目,接收PDF文件 (Agent-based extraction)"""
+    # 检查文件类型 - 只允许 PDF
+    allowed_extensions = ['.pdf']
     file_ext = Path(file.filename).suffix.lower()
     
     if file_ext not in allowed_extensions:
