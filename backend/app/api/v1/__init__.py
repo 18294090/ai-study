@@ -13,6 +13,7 @@ from .routes.expert_reviewer import router as expert_reviewer_router
 from .routes.audit import router as audit_router
 from .routes.study_groups import router as study_groups_router
 from .routes.kg_gateway import router as kg_gateway_router
+from .routes.tutor_gateway import router as tutor_gateway_router
 
 api_v1_router = APIRouter()
 
@@ -31,3 +32,4 @@ api_v1_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_v1_router.include_router(study_groups_router, prefix="/study-groups", tags=["study-groups"])
 api_v1_router.include_router(hermes_router, tags=["hermes"])
 api_v1_router.include_router(kg_gateway_router, prefix="/kg", tags=["knowledge-graph"])
+api_v1_router.include_router(tutor_gateway_router, prefix="/tutor", tags=["tutor"])
