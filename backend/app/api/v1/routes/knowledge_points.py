@@ -10,7 +10,6 @@ from app.db.neo4j_utils import (
 )
 from app.schemas.knowledge_point import KnowledgePointResponse
 from app.core.auth import get_current_user
-from app.core.permissions import check_subject_member
 from app.models.user import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -25,32 +24,8 @@ from app.services.knowledge_point_service import (
 
 router = APIRouter()
 
-async def verify_subject_membership(subject_id: int, current_user: User, db: AsyncSession) -> None:
-    """验证用户是否是学科成员（用于知识点管理）"""
-    await check_subject_member(subject_id, current_user, db)
 
-
-@router.get("/subjects/{subject_id}/knowledge-points", response_model=List[KnowledgePointResponse])
-async def get_knowledge_points_by_subject_route(
-    subject_id: int = Path(..., description="学科ID"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取学科下的知识点列表（只读）"""
-    await verify_subject_membership(subject_id, current_user, db)
-    cache_key = f"kp:subject:{subject_id}:list"
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-    kps = get_knowledge_points_by_subject(subject_id)
-    try:
-        cache_set(cache_key, kps, settings.CACHE_TTL)
-    except Exception:
-        pass
-    return kps
-
-
-@router.get("/knowledge-points/{knowledge_point_id}", response_model=KnowledgePointResponse)
+@router.get("/{knowledge_point_id}", response_model=KnowledgePointResponse)
 async def get_knowledge_point(
     knowledge_point_id: int = Path(..., description="知识点ID"),
     current_user: User = Depends(get_current_user)
@@ -64,7 +39,7 @@ async def get_knowledge_point(
         return record["kp"]
 
 
-@router.get("/knowledge-points/search", response_model=List[KnowledgePointResponse])
+@router.get("/search", response_model=List[KnowledgePointResponse])
 async def search_kps(
     subject_id: int = Query(..., description="学科ID"),
     q: str = Query("", description="搜索关键字(名称/描述)"),
@@ -72,7 +47,6 @@ async def search_kps(
     db: AsyncSession = Depends(get_db),
 ):
     """搜索知识点（只读）"""
-    await verify_subject_membership(subject_id, current_user, db)
     key = f"kp:subject:{subject_id}:search:{(q or '').strip().lower()}"
     cached = cache_get(key)
     if cached is not None:
@@ -85,7 +59,7 @@ async def search_kps(
     return data
 
 
-@router.get("/knowledge-points/{knowledge_point_id}/subtree")
+@router.get("/{knowledge_point_id}/subtree")
 async def get_kp_subtree(
     knowledge_point_id: int = Path(..., description="知识点ID"),
     db: AsyncSession = Depends(get_db),
@@ -95,11 +69,10 @@ async def get_kp_subtree(
     obj = await db.get(SQLKnowledgePoint, knowledge_point_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="知识点不存在")
-    await verify_subject_membership(obj.subject_id, current_user, db)
     return await svc_get_subtree(db, knowledge_point_id)
 
 
-@router.get("/knowledge-points/{knowledge_point_id}/ancestors")
+@router.get("/{knowledge_point_id}/ancestors")
 async def get_kp_ancestors(
     knowledge_point_id: int = Path(..., description="知识点ID"),
     db: AsyncSession = Depends(get_db),
@@ -109,11 +82,10 @@ async def get_kp_ancestors(
     obj = await db.get(SQLKnowledgePoint, knowledge_point_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="知识点不存在")
-    await verify_subject_membership(obj.subject_id, current_user, db)
     return await svc_get_ancestors(db, knowledge_point_id)
 
 
-@router.get("/knowledge-points/{knowledge_point_id}/tree")
+@router.get("/{knowledge_point_id}/tree")
 async def get_kp_tree(
     knowledge_point_id: int = Path(..., description="知识点ID"),
     db: AsyncSession = Depends(get_db),
@@ -123,5 +95,4 @@ async def get_kp_tree(
     obj = await db.get(SQLKnowledgePoint, knowledge_point_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="知识点不存在")
-    await verify_subject_membership(obj.subject_id, current_user, db)
     return await svc_build_tree(db, knowledge_point_id)
