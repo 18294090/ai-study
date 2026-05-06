@@ -62,7 +62,7 @@ def tutor_respond(session_id: str, student_message: str, role: str = "student") 
 
         session = _load_session(session_id)
         if not session:
-            return {"success": False, "error": f"Session {session_id} not found"}
+            return {"success": False, "error": f"Session {session_id} not found", "message": None, "state": None, "hint_level": 0, "kg_citations": [], "suggestions": [], "is_final": False}
 
         session["messages"].append({
             "role": role,
@@ -105,7 +105,7 @@ def tutor_respond(session_id: str, student_message: str, role: str = "student") 
 
     except Exception as e:
         logger.error(f"tutor_respond failed: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "message": None, "state": None, "hint_level": 0, "kg_citations": [], "suggestions": [], "is_final": False}
 
 def _state_transition(state: str, turns: int, hint_level: int, concept_id: str, message: str) -> tuple:
     if state == "diagnose":
