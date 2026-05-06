@@ -4,16 +4,15 @@ version = "0.1.0"
 description = "智慧学习系统 LearnHub - AI Native Education Platform"
 authors = ["zh"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"
 
-# PyTorch CUDA 12.4 (from pytorch-cuda source)
-torch = {version = "^2.5.0", source = "pytorch-cuda"}
-torchvision = {version = "^0.20.0", source = "pytorch-cuda"}
 fastapi = "^0.116.1"
 uvicorn = {extras = ["standard"], version = "^0.27.1"}
 pydantic = {extras = ["email"], version = "^2.5.3"}
+aiofiles = "^24.1.0"
 
 # Auth & Security
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
@@ -25,6 +24,7 @@ sqlalchemy = "^2.0.25"
 asyncpg = "^0.30.0"
 alembic = "^1.13"
 psycopg2-binary = "^2.9.9"
+pgvector = "^0.3.6"
 
 # Knowledge Graph
 neo4j = "^5.17"
@@ -46,7 +46,7 @@ langchain-core = "^0.1.20"
 langchain-community = "^0.0.20"
 
 # Embedding & Rerank
-FlagEmbedding = {version = "^1.2.10", extras = ["gpu"]}
+FlagEmbedding = "^1.2.10"
 cohere = "^5.0.0"
 
 # PDF Parsing
@@ -70,7 +70,15 @@ optional = true
 [tool.poetry.group.kg]
 optional = true
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.gpu]
+optional = true
+
+[tool.poetry.group.gpu.dependencies]
+# Installed by Makefile step `install-torch` (pip, resilient for large wheels)
+torch = {version = "^2.5.0", source = "pytorch-cuda"}
+torchvision = {version = "^0.20.0", source = "pytorch-cuda"}
+
+[tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
 pytest-asyncio = "^0.23.0"
 pytest-cov = "^4.1.0"

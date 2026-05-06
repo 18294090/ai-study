@@ -1,4 +1,4 @@
-.PHONY: all install dev test lint format clean backup eval eval-sample migrate migration shell status help ensure-poetry
+.PHONY: all install install-torch dev test lint format clean backup eval eval-sample migrate migration shell status help ensure-poetry
 
 # Python backend
 BACKEND=backend
@@ -8,10 +8,14 @@ POETRY=$(POETRY_VENV)/bin/poetry
 # CUDA version (default: cu124 for CUDA 12.4)
 # Override with: make install CUDA_VERSION=cu118
 CUDA_VERSION ?= cu124
+TORCH_VERSION ?= 2.5.1
+TORCHVISION_VERSION ?= 0.20.1
 
 # Pip mirrors (domestic for speed)
 PIP_INDEX        = https://pypi.tuna.tsinghua.edu.cn/simple
-PIP_EXTRA_INDEX  = https://download.pytorch.org/whl/$(CUDA_VERSION)
+PYTORCH_CUDA_INDEX_PRIMARY  = https://mirrors.aliyun.com/pytorch-wheels/$(CUDA_VERSION)
+PYTORCH_CUDA_INDEX_FALLBACK = https://download.pytorch.org/whl/$(CUDA_VERSION)
+PIP_EXTRA_INDEX  = $(PYTORCH_CUDA_INDEX_PRIMARY)
 
 # Default target
 all: install
@@ -32,24 +36,48 @@ ensure-poetry:
 		"$(POETRY_VENV)/bin/pip" install --quiet poetry -i $(PIP_INDEX); \
 	fi
 
-# Install dependencies (default: CUDA $(CUDA_VERSION))
-# For CPU-only: make install CUDA_VERSION=cpu
-install: ensure-poetry
-	@echo "Installing backend dependencies (CUDA=$(CUDA_VERSION))..."
-	@cd $(BACKEND) && \
-	$(POETRY) config installer.max-workers 10 && \
-	$(POETRY) config repositories.pytorch-cuda https://download.pytorch.org/whl/$(CUDA_VERSION) && \
-	for i in 1 2 3; do \
-		echo "Poetry install attempt $$i/3 (CUDA=$(CUDA_VERSION))..."; \
-		PIP_INDEX_URL=$(PIP_INDEX) \
-		PIP_EXTRA_INDEX_URL=$(PIP_EXTRA_INDEX) \
-		PIP_DEFAULT_TIMEOUT=300 \
-		POETRY_REQUESTS_TIMEOUT=300 \
-		$(POETRY) install --no-interaction && exit 0; \
-		echo "Attempt $$i failed, retrying..."; \
+# Pre-download torch/torchvision CUDA wheels via pip (resumes on partial download,
+# avoids Poetry's single-shot downloader which fails on 900MB wheels).
+install-torch: ensure-poetry
+	@echo "==> Step 1/2: downloading torch + torchvision wheels (CUDA=$(CUDA_VERSION))..."
+	@VENV="$(BACKEND)/.venv"; \
+	if [ ! -x "$$VENV/bin/python" ]; then \
+		echo "Creating project venv at $$VENV..."; \
+		python3 -m venv "$$VENV"; \
+	fi; \
+	PIP="$$VENV/bin/python -m pip"; \
+	PYTHON="$$VENV/bin/python"; \
+	echo "Venv pip: $$PIP"; \
+	echo "Target torch=$(TORCH_VERSION), torchvision=$(TORCHVISION_VERSION)"; \
+	for i in 1 2 3 4 5; do \
+		echo "  pip install torch attempt $$i/5..."; \
+		$$PIP install \
+			--index-url $(PYTORCH_CUDA_INDEX_PRIMARY) \
+			--extra-index-url $(PYTORCH_CUDA_INDEX_FALLBACK) \
+			--extra-index-url $(PIP_INDEX) \
+			--timeout 900 --retries 50 \
+			"torch==$(TORCH_VERSION)" "torchvision==$(TORCHVISION_VERSION)" && break; \
+		echo "  attempt $$i failed, retrying..."; \
+		sleep 5; \
 	done; \
-	echo "Failed after 3 attempts. Try: make install CUDA_VERSION=cpu"; \
-	exit 1
+	"$$PYTHON" -c "import torch, torchvision; \
+assert torch.__version__.startswith('$(TORCH_VERSION)'), f'torch={torch.__version__}'; \
+assert torchvision.__version__.startswith('$(TORCHVISION_VERSION)'), f'torchvision={torchvision.__version__}'" >/dev/null 2>&1 || { \
+		echo "Torch installation verification failed."; \
+		exit 1; \
+	}
+
+# Install all other dependencies via Poetry (torch already in venv, Poetry will skip it)
+install: install-torch
+	@echo "==> Step 2/2: installing remaining dependencies via Poetry..."
+	@cd $(BACKEND) && \
+	$(POETRY) config virtualenvs.in-project true && \
+	$(POETRY) env use .venv/bin/python && \
+	$(POETRY) config installer.max-workers 4 && \
+	$(POETRY) config installer.parallel true && \
+	PIP_INDEX_URL=$(PIP_INDEX) \
+	PIP_DEFAULT_TIMEOUT=300 \
+	$(POETRY) install --no-interaction --without gpu
 	@echo "Done! CUDA=$(CUDA_VERSION). Activate: $(POETRY) shell"
 
 # Development mode

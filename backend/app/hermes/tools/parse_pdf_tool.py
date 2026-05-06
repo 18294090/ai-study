@@ -1,6 +1,6 @@
 """Parse PDF tool using MinerU."""
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from pathlib import Path
 import logging
 
@@ -38,7 +38,7 @@ def parse_pdf_tool(file_path: str) -> Dict[str, Any]:
 
     except ImportError:
         logger.error("MinerU not installed")
-        return {"success": False, "error": "MinerU not installed", "markdown": "", "images": []}
+        return {"success": False, "error": "MinerU not installed", "markdown": "", "images": [], "char_count": 0, "image_count": 0}
     except Exception as e:
         logger.error(f"Failed to parse PDF: {e}")
-        return {"success": False, "error": str(e), "markdown": "", "images": []}
+        return {"success": False, "error": str(e), "markdown": "", "images": [], "char_count": 0, "image_count": 0}
