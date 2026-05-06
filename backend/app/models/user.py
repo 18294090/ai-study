@@ -15,10 +15,8 @@ from app.core.password import get_password_hash
 # 导入已定义的关联表
 from app.models.subject import user_subject
 from app.models.assignment import UserAssignment
-from app.models.class_model import class_student
 
 if TYPE_CHECKING:
-    from app.models.class_model import Class
     from app.models.question import Question
 
 def _load_knowledge_point():
@@ -110,18 +108,7 @@ class User(Base):
     created_subjects = relationship("Subject", back_populates="creator", foreign_keys="Subject.creator_id")
     # 知识点关系
     created_knowledge_points = relationship(_load_knowledge_point, back_populates="creator")
-    # 添加这两个关系属性
-    teaching_classes = relationship(
-        "Class", 
-        back_populates="teacher",
-        foreign_keys="Class.teacher_id"
-    )
     created_tags = relationship(_load_tag, back_populates="creator")
-    enrolled_classes = relationship(
-        "Class",
-        secondary=class_student,  # 使用导入的 class_student
-        back_populates="students"
-    )
 
     # 添加作业相关关系
     created_assignments = relationship(

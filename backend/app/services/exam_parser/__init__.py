@@ -7,8 +7,6 @@ from .parsers import (
     parse_pdf,
     parse_docx,
     parse_image,
-    parse_pdf_with_mineru,
-    parse_document_with_mineru,
 )
 from .utils import parse_path, export_results
 
@@ -18,8 +16,6 @@ __all__ = [
     "parse_pdf",
     "parse_docx",
     "parse_image",
-    "parse_pdf_with_mineru",
-    "parse_document_with_mineru",
     "parse_path",
     "export_results",
 ]

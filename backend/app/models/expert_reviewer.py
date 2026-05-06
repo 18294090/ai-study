@@ -1,23 +1,24 @@
 from datetime import datetime
+from enum import Enum
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
 from app.models.base import Base
 
 
-class ConflictType(str, Base):
+class ConflictType(str, Enum):
     CONTRADICTION = "contradiction"
     TEMPORAL = "temporal"
     GRANULARITY = "granularity"
     NAMING = "naming"
 
 
-class ConflictStatus(str, Base):
+class ConflictStatus(str, Enum):
     PENDING = "pending"
     REVIEWING = "reviewing"
     RESOLVED = "resolved"
     REJECTED = "rejected"
 
 
-class RecommendationType(str, Base):
+class RecommendationType(str, Enum):
     ACCEPT_A = "accept_a"
     ACCEPT_B = "accept_b"
     MERGE = "merge"
@@ -41,7 +42,7 @@ class KGConflict(Base):
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     resolution = Column(Text, nullable=True)
     resolver_id = Column(Integer, nullable=True)
-    metadata = Column(String, nullable=True)
+    metadata_json = Column("metadata", String, nullable=True)
 
 
 class ExpertReview(Base):

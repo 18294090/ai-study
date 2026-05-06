@@ -3,7 +3,10 @@ import re
 import json
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate
-from langchain_ollama import ChatOllama
+try:
+    from langchain_ollama import ChatOllama
+except ImportError:
+    from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from app.models.knowledge_point import KnowledgePoint, DifficultyLevel, TeachingRequirement
 from app.core.config import settings

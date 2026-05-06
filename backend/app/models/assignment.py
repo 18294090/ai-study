@@ -27,7 +27,6 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.question import Question
-    from app.models.class_model import Class
     from app.models.knowledge import KnowledgePoint
 
 # 关联表：作业和问题 (多对多)
@@ -77,9 +76,6 @@ class Assignment(Base):
     # 关系
     creator_id: Mapped[int] = mapped_column(ForeignKey("users.id"), comment="创建者ID")
     creator: Mapped["User"] = relationship(back_populates="created_assignments")
-
-    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id"), comment="所属班级ID")
-    class_: Mapped["Class"] = relationship(back_populates="assignments")
 
     questions: Mapped[List["Question"]] = relationship(
         "Question",

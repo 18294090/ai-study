@@ -17,7 +17,7 @@ class AgentOperationLog(Base):
     after_state = Column(JSON, nullable=True)
     result = Column(String, nullable=False)
     latency_ms = Column(Integer, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
     timestamp = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     __table_args__ = (

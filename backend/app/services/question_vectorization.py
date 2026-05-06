@@ -2,7 +2,10 @@
 from typing import List, Dict, Any, Optional
 import json
 from datetime import datetime
-from langchain_ollama import OllamaEmbeddings
+try:
+    from langchain_ollama import OllamaEmbeddings
+except ImportError:
+    from langchain_community.embeddings import OllamaEmbeddings
 from sqlalchemy.ext.asyncio import AsyncSession
 from pgvector.sqlalchemy import Vector
 from app.models.VectorStore import QuestionVector, QuestionVectorCreate

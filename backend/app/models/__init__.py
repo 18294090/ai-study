@@ -15,8 +15,7 @@ from app.models.resource import Resource
 # 导入题目相关模型
 from app.models.question import Question, QuestionComment
 
-# 导入班级和作业相关模型
-from app.models.class_model import Class  # 重命名避免与Python关键字冲突
+# 导入作业相关模型
 from app.models.assignment import Assignment
 # 导入学习小组模型
 from app.models.study_group import StudyGroup, StudyGroupMember
