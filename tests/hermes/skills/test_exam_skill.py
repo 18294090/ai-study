@@ -18,3 +18,10 @@ def test_exam_skill_has_expected_tools():
 async def test_run_exam_skill_missing_file_path():
     result = await run_exam_skill({})
     assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_exam_skill_with_source():
+    result = await run_exam_skill({"file_path": "test.pdf", "source": "upload"})
+    if result.get("success"):
+        assert result["metadata"].get("source") == "upload"

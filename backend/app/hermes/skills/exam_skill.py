@@ -17,8 +17,10 @@ class ExamSkillConfig:
 class ExamSkill:
     """Exam extraction skill using Hermes tools."""
 
-    def __init__(self, config: Optional[ExamSkillConfig] = None):
+    def __init__(self, config: Optional[ExamSkillConfig] = None, runtime: Optional[Any] = None):
+        from ..runtime import HermesRuntime
         self.config = config or ExamSkillConfig()
+        self._runtime = runtime or HermesRuntime()
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the exam extraction skill.
@@ -32,10 +34,6 @@ class ExamSkill:
         Returns:
             Dict with extraction results
         """
-        from ..runtime import HermesRuntime
-
-        runtime = HermesRuntime()
-
         file_path = input_data.get("file_path")
         threshold = input_data.get("confidence_threshold", self.config.confidence_threshold)
 
@@ -44,11 +42,13 @@ class ExamSkill:
 
         logger.info(f"ExamSkill executing for file: {file_path}")
 
-        result = runtime.run_skill("exam_skill", {
+        result = self._runtime.run_skill("exam_skill", {
             "file_path": file_path,
             "confidence_threshold": threshold,
         })
 
+        if "metadata" not in result:
+            result["metadata"] = {}
         if input_data.get("source"):
             result["metadata"]["source"] = input_data["source"]
 
