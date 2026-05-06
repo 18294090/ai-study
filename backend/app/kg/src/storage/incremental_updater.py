@@ -22,29 +22,24 @@ class IncrementalUpdater:
     def compute_diff(
         self, textbook_id: str, old_version: str, new_version: str
     ) -> list[TripleDiff]:
-        old_cypher = (
-            f"MATCH (s)-[r]->(o) "
-            f"WHERE s.textbook_id = '{textbook_id}' AND s.version = '{old_version}' "
-            f"RETURN s.uri AS subj, type(r) AS pred, o.uri AS obj"
-        )
-        new_cypher = (
-            f"MATCH (s)-[r]->(o) "
-            f"WHERE s.textbook_id = '{textbook_id}' AND s.version = '{new_version}' "
-            f"RETURN s.uri AS subj, type(r) AS pred, o.uri AS obj"
+        _TRIPLE_QUERY = (
+            "MATCH (s)-[r]->(o) "
+            "WHERE s.textbook_id = $textbook_id AND s.version = $version "
+            "RETURN s.uri AS subj, type(r) AS pred, o.uri AS obj"
         )
 
         with self.driver.session(database="neo4j") as s:
-            old_result = s.run(old_cypher).data()
-            new_result = s.run(new_cypher).data()
+            old_result = s.run(_TRIPLE_QUERY, textbook_id=textbook_id, version=old_version).data()
+            new_result = s.run(_TRIPLE_QUERY, textbook_id=textbook_id, version=new_version).data()
 
-        old_triples = set((r["subj"], r["pred"], r["obj"]) for r in old_result)
-        new_triples = set((r["subj"], r["pred"], r["obj"]) for r in new_result)
+        old_triples = {(r["subj"], r["pred"], r["obj"]) for r in old_result}
+        new_triples = {(r["subj"], r["pred"], r["obj"]) for r in new_result}
 
         diffs = []
-        for t in new_triples - old_triples:
-            diffs.append(TripleDiff(op="add", subj=t["subj"], pred=t["pred"], obj=t["obj"]))
-        for t in old_triples - new_triples:
-            diffs.append(TripleDiff(op="remove", subj=t["subj"], pred=t["pred"], obj=t["obj"]))
+        for subj, pred, obj in new_triples - old_triples:
+            diffs.append(TripleDiff(op="add", subj=subj, pred=pred, obj=obj))
+        for subj, pred, obj in old_triples - new_triples:
+            diffs.append(TripleDiff(op="remove", subj=subj, pred=pred, obj=obj))
 
         return diffs
 

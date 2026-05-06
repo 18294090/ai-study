@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pydantic import BaseModel
 
 
@@ -30,27 +31,58 @@ class ContradictionDetector:
 
         return contradictions
 
+    @staticmethod
+    def _text_similarity(a: str, b: str) -> float:
+        """Return [0,1] similarity ratio using difflib as a lightweight semantic proxy.
+        When FlagEmbedding is available this can be replaced with cosine similarity."""
+        if not a and not b:
+            return 1.0
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a, b).ratio()
+
     def _check_entity_conflicts(self, triple: Any, textbook_id: str) -> List[Contradiction]:
+        """Flag entity conflicts based on semantic similarity of descriptions.
+
+        Threshold rationale:
+          - similarity < 0.3  → descriptions are clearly different → potential conflict
+          - 0.3 <= sim < 0.7  → ambiguous, route to human review
+          - sim >= 0.7        → descriptions are consistent, no conflict
+        """
         conflicts = []
         try:
             with self.neo4j_driver.session(database="neo4j") as session:
                 result = session.run(
                     "MATCH (e {id: $id}) WHERE e.textbook_id <> $textbook_id "
                     "RETURN e.id AS id, e.name AS name, e.description AS desc, e.textbook_id AS source",
-                    id=triple.subject.id, textbook_id=textbook_id
+                    id=triple.subject.id, textbook_id=textbook_id,
                 )
                 existing = result.data()
                 if existing:
+                    new_desc = triple.subject.description or ""
                     for e in existing:
-                        if abs(len(triple.subject.description or "") - len(e["desc"] or "")) > 500:
-                            conflicts.append(Contradiction(
-                                type="entity_conflict",
-                                triple_a_id=triple.subject.id,
-                                triple_b_id=e["id"],
-                                severity=0.6,
-                                resolution="flag_for_review",
-                                description=f"实体 {triple.subject.name} 与已有版本描述差异大（来源: {e['source']}）"
-                            ))
+                        old_desc = e["desc"] or ""
+                        sim = self._text_similarity(new_desc, old_desc)
+                        if sim < 0.3:
+                            severity = 0.8
+                            resolution = "flag_for_review"
+                            label = "描述语义差异显著"
+                        elif sim < 0.7:
+                            severity = 0.5
+                            resolution = "flag_for_review"
+                            label = "描述部分不一致"
+                        else:
+                            continue  # consistent enough, skip
+                        conflicts.append(Contradiction(
+                            type="entity_conflict",
+                            triple_a_id=triple.subject.id,
+                            triple_b_id=e["id"],
+                            severity=severity,
+                            resolution=resolution,
+                            description=(
+                                f"实体 {triple.subject.name}：{label}（相似度={sim:.2f}，来源: {e['source']}）"
+                            ),
+                        ))
         except Exception:
             pass
         return conflicts

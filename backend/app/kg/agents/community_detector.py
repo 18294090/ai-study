@@ -20,9 +20,15 @@ class CommunityDetector:
 
     def detect(self, database: str = "neo4j") -> List[dict]:
         with self.driver.session(database=database) as s:
+            # Idempotent projection: drop if stale, then recreate.
+            exists_result = s.run("CALL gds.graph.exists('kg') YIELD exists").single()
+            if exists_result and exists_result["exists"]:
+                s.run("CALL gds.graph.drop('kg', false) YIELD graphName")
             s.run("CALL gds.graph.project('kg', '*', '*')")
             s.run("""CALL gds.leiden.write('kg',
                 {writeProperty: 'community_id', includeIntermediateCommunities: true})""")
+            # Always drop the in-memory projection after use to free GDS memory.
+            s.run("CALL gds.graph.drop('kg', false) YIELD graphName")
             result = s.run(
                 "MATCH (n) WHERE n.community_id IS NOT NULL "
                 "RETURN n.community_id AS c, count(*) AS size "

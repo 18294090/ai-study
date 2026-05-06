@@ -2,6 +2,9 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Any, Optional
 import asyncio
 from app.kg.src.models import Textbook, Chapter
+from app.kg.src.logger import get_logger
+
+logger = get_logger("lead_agent")
 
 
 class PipelineState(TypedDict):
@@ -23,42 +26,40 @@ def parse_node(state: PipelineState) -> PipelineState:
     return state
 
 
-async def _extract_with_retry(
-    func,
-    arg,
+async def bounded_retry_gather(
+    items: list,
+    worker_fn,
+    concurrency: int = 3,
     max_retries: int = 3,
-    **kwargs
-) -> Any:
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            return await func(arg, **kwargs) if asyncio.iscoroutinefunction(func) else func(arg, **kwargs)
-        except Exception as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)
-    raise last_error
+) -> list:
+    """Run ``worker_fn(item)`` for every item with bounded concurrency and
+    exponential-backoff retries.  Returns a flat list of non-exception results.
+
+    This replaces the three identical semaphore+retry patterns that used to live
+    inside extract_domain_node / tag_pedagogical_node / map_skills_node.
+    """
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def _run(item) -> Any:
+        async with semaphore:
+            last_error: Optional[Exception] = None
+            for attempt in range(max_retries):
+                try:
+                    coro = worker_fn(item)
+                    return await coro if asyncio.iscoroutine(coro) else coro
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+            raise last_error  # type: ignore[misc]
+
+    raw = await asyncio.gather(*[_run(it) for it in items], return_exceptions=True)
+    return [r for r in raw if not isinstance(r, BaseException)]
 
 
 async def extract_domain_node(state: PipelineState) -> PipelineState:
     chapters = state.get("chapters", [])
-    results = []
-    semaphore = asyncio.Semaphore(3)
-
-    async def process_chapter(chapter: Chapter) -> list:
-        async with semaphore:
-            for attempt in range(3):
-                try:
-                    return await _extract_domain_triples(chapter)
-                except Exception as e:
-                    if attempt == 2:
-                        raise
-                    await asyncio.sleep(2 ** attempt)
-            return []
-
-    tasks = [process_chapter(ch) for ch in chapters]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    state["domain_triples"] = [r for r in results if isinstance(r, list) and not isinstance(r, Exception)]
+    state["domain_triples"] = await bounded_retry_gather(chapters, _extract_domain_triples)
     return state
 
 
@@ -71,29 +72,13 @@ async def _extract_domain_triples(chapter: Chapter) -> list:
         result = extractor.extract(chapter, book_context="")
         return [t.model_dump() for t in result.triples]
     except Exception as e:
-        print(f"[extract_domain] failed for {chapter.chapter_id}: {e}")
+        logger.warning(f"extract_domain failed for {chapter.chapter_id}: {e}")
         return []
 
 
 async def tag_pedagogical_node(state: PipelineState) -> PipelineState:
     chapters = state.get("chapters", [])
-    results = []
-    semaphore = asyncio.Semaphore(3)
-
-    async def process_chapter(chapter: Chapter) -> list:
-        async with semaphore:
-            for attempt in range(3):
-                try:
-                    return await _tag_pedagogical(chapter)
-                except Exception as e:
-                    if attempt == 2:
-                        raise
-                    await asyncio.sleep(2 ** attempt)
-            return []
-
-    tasks = [process_chapter(ch) for ch in chapters]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    state["pedagogical"] = [r for r in results if isinstance(r, list) and not isinstance(r, Exception)]
+    state["pedagogical"] = await bounded_retry_gather(chapters, _tag_pedagogical)
     return state
 
 
@@ -106,29 +91,13 @@ async def _tag_pedagogical(chapter: Chapter) -> list:
         result = tagger.tag(chapter, book_context="")
         return [result.model_dump()]
     except Exception as e:
-        print(f"[tag_pedagogical] failed for {chapter.chapter_id}: {e}")
+        logger.warning(f"tag_pedagogical failed for {chapter.chapter_id}: {e}")
         return []
 
 
 async def map_skills_node(state: PipelineState) -> PipelineState:
     chapters = state.get("chapters", [])
-    results = []
-    semaphore = asyncio.Semaphore(3)
-
-    async def process_chapter(chapter: Chapter) -> list:
-        async with semaphore:
-            for attempt in range(3):
-                try:
-                    return await _map_skills(chapter)
-                except Exception as e:
-                    if attempt == 2:
-                        raise
-                    await asyncio.sleep(2 ** attempt)
-            return []
-
-    tasks = [process_chapter(ch) for ch in chapters]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    state["skills"] = [r for r in results if isinstance(r, list) and not isinstance(r, Exception)]
+    state["skills"] = await bounded_retry_gather(chapters, _map_skills)
     return state
 
 
@@ -142,7 +111,7 @@ async def _map_skills(chapter: Chapter) -> list:
         result = mapper.map_skills(concept_names, chapter.content[:500])
         return [r.model_dump() for r in result.q_matrix_entries]
     except Exception as e:
-        print(f"[map_skills] failed for {chapter.chapter_id}: {e}")
+        logger.warning(f"map_skills failed for {chapter.chapter_id}: {e}")
         return []
 
 
@@ -189,7 +158,7 @@ def check_contradictions_node(state: PipelineState) -> PipelineState:
 
     high_severity = [c for c in contradictions if c.severity >= 0.5]
     if high_severity:
-        print(f"[contradiction] {len(high_severity)} contradictions flagged for review")
+        logger.info(f"{len(high_severity)} contradictions flagged for review")
 
     state["contradictions"] = [c.model_dump() for c in contradictions]
     return state
@@ -197,7 +166,7 @@ def check_contradictions_node(state: PipelineState) -> PipelineState:
 
 def verify_node(state: PipelineState) -> PipelineState:
     verified_count = len(state.get("domain_triples", []))
-    print(f"[verify] passed through {verified_count} triples")
+    logger.debug(f"verified {verified_count} triples")
     return state
 
 
@@ -219,9 +188,9 @@ def detect_communities_node(state: PipelineState) -> PipelineState:
     try:
         communities = detector.detect()
         state["communities"] = communities
-        print(f"[detect_communities] found {len(communities)} communities")
+        logger.info(f"found {len(communities)} communities")
     except Exception as e:
-        print(f"[detect_communities] failed: {e}")
+        logger.error(f"detect_communities failed: {e}")
         state["communities"] = []
     return state
 
@@ -250,7 +219,7 @@ def eval_fail_report_node(state: PipelineState) -> PipelineState:
     out = pathlib.Path(f"eval/baselines/{textbook_id}_fail_{ts}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2))
-    print(f"[eval_gate FAILED] report → {out}\n{json.dumps(report, ensure_ascii=False)}")
+    logger.warning(f"eval FAILED, report → {out}")
     return state
 
 
@@ -282,7 +251,7 @@ def store_node(state: PipelineState) -> PipelineState:
         try:
             writer.write_triple(triple_data)
         except Exception as e:
-            print(f"[store] triple write failed: {e}")
+            logger.error(f"triple write failed: {e}")
 
     return state
 
@@ -305,7 +274,7 @@ def compliance_export_node(state: PipelineState) -> PipelineState:
     }
 
     out.write_text(json.dumps(export_data, ensure_ascii=False, indent=2))
-    print(f"[compliance_export] exported to {out}")
+    logger.info(f"exported to {out}")
     return state
 
 
