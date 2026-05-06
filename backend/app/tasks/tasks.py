@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from app.core.config import settings
 from app.models.question import Question
-from app.services.exam_parser import parse_pdf, parse_docx, parse_image
+from app.services.exam_parser import parse_pdf
 from typing import Optional
 import tempfile
 import os
@@ -30,13 +30,11 @@ def process_file_import_task(self, file_path: str, file_type: str, user_id: int,
         # 创建临时图片目录
         img_dir = tempfile.mkdtemp(prefix="exam_parser_")
 
-        # 根据文件类型调用相应的解析器
+        # 根据文件类型调用相应的解析器 (统一使用MinerU)
         if file_type == 'pdf':
             questions = parse_pdf(file_path, img_dir)
-        elif file_type in ['docx', 'doc']:
-            questions = parse_docx(file_path, img_dir)
-        elif file_type in ['png', 'jpg', 'jpeg']:
-            questions = parse_image(file_path, img_dir)
+        elif file_type in ['docx', 'doc', 'png', 'jpg', 'jpeg']:
+            raise ValueError(f"Unsupported file type for exam parsing: {file_type}. Only PDF is supported.")
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
 

@@ -16,7 +16,7 @@ from app.core.auth import get_current_user, get_current_active_user
 from app.models.user import User
 from app.models.knowledge import KnowledgePoint
 # 导入exam_parser
-from app.services.exam_parser import parse_pdf, parse_docx, parse_image
+from app.services.exam_parser import parse_pdf
 # 导入向量化服务
 from app.services.question_vectorization import vectorize_questions_batch, search_similar_questions
 from app.models.VectorStore import QuestionVectorResponse
@@ -126,13 +126,11 @@ async def process_file_import(file_path: str, file_type: str, user_id: int, subj
         timestamp = int(time.time())
         img_dir = uploads_dir / f"user_{user_id}_{timestamp}"
         img_dir.mkdir(exist_ok=True)        
-        # 根据文件类型调用相应的解析器
+        # 根据文件类型调用相应的解析器 (统一使用MinerU)
         if file_type == 'pdf':
             questions = parse_pdf(file_path, str(img_dir))
-        elif file_type in ['docx', 'doc']:
-            questions = parse_docx(file_path, str(img_dir))
-        elif file_type in ['png', 'jpg', 'jpeg']:
-            questions = parse_image(file_path, str(img_dir))
+        elif file_type in ['docx', 'doc', 'png', 'jpg', 'jpeg']:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type for exam parsing: {file_type}. Only PDF is supported.")
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
         
