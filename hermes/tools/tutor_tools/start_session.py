@@ -29,7 +29,7 @@ def tutor_start(user_id: int, concept_id: str, p_know: float, conversation_histo
     """
     try:
         if user_id is None or not concept_id:
-            return {"success": False, "error": "user_id and concept_id are required", "session_id": None, "state": None, "message": None}
+            return {"success": False, "error": "user_id and concept_id are required", "session_id": None, "state": None, "message": None, "kg_citations": [], "suggestions": []}
 
         _ensure_session_dir()
 
@@ -73,7 +73,7 @@ def tutor_start(user_id: int, concept_id: str, p_know: float, conversation_histo
 
     except Exception as e:
         logger.error(f"tutor_start failed: {e}")
-        return {"success": False, "error": str(e), "session_id": None, "state": None, "message": None}
+        return {"success": False, "error": str(e), "session_id": None, "state": None, "message": None, "kg_citations": [], "suggestions": []}
 
 def _generate_first_message(concept_id: str, state: str) -> str:
     messages = {

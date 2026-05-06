@@ -32,7 +32,7 @@ def test_tutor_start_with_high_p_know():
     )
 
     assert result["success"] is True
-    assert result["state"] != "diagnose"
+    assert result["state"] == "hint_ladder"
 
 def test_tutor_start_error_handling():
     from hermes.tools.tutor_tools.start_session import tutor_start
