@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.parsers.multi_parser import parse_textbook
+from src.parsers.multi_parser import parse_document
 from src.models import Textbook, Chapter, Section
 from agents.lead_agent import run_pipeline
 
@@ -48,7 +48,7 @@ async def main():
     print(f"[pipeline] Eval gate: {args.eval_gate}")
 
     try:
-        textbook = parse_textbook(str(input_path))
+        textbook = parse_document(str(input_path))
     except Exception as e:
         print(f"[pipeline] Failed to parse PDF: {e}")
         sys.exit(1)
