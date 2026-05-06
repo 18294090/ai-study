@@ -10,7 +10,7 @@ from app.models.user import User
 from app.models.subject import Subject
 from app.models.knowledge import KnowledgePoint
 
-router = APIRouter(prefix="/subjects", tags=["subjects"])
+router = APIRouter(tags=["subjects"])
 
 
 class SubjectResponse(BaseModel):

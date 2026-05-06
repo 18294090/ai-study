@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.fsrs import FSRSCard, FSRSReviewLog, CardState, ReviewRating
 from app.services.fsrs_scheduler import FSRSScheduler, FSRSOptimizer, ScheduleResult
 
-router = APIRouter(prefix="/fsrs", tags=["fsrs"])
+router = APIRouter(tags=["fsrs"])
 
 
 class CreateCardRequest(BaseModel):

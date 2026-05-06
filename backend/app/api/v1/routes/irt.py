@@ -12,7 +12,7 @@ from app.models.irt import IRTItemParams, IRTAbilityEstimate, IRTCalibrationSess
 from app.services.irt_calibration import IRTCalibrationService, Response as IRTResponse
 from app.services.irt_ability import IRTAbilityEstimator, AbilityResult
 
-router = APIRouter(prefix="/irt", tags=["irt"])
+router = APIRouter(tags=["irt"])
 
 
 class CalibrationDetail(BaseModel):

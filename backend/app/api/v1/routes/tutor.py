@@ -10,7 +10,7 @@ from app.models.tutor import TutorSession, TutorMessage
 from app.services.tutor_state_machine import TutorStateMachine, TutorState
 
 
-router = APIRouter(prefix="/tutor", tags=["tutor"])
+router = APIRouter(tags=["tutor"])
 
 
 class StartSessionRequest(BaseModel):

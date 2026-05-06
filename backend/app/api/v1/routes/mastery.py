@@ -10,7 +10,7 @@ from app.services.bkt_service import BKTUpdater
 from app.models.mastery import MasteryRecord, AnswerLog, DiagnosticResult
 
 
-router = APIRouter(prefix="/mastery", tags=["mastery"])
+router = APIRouter(tags=["mastery"])
 
 
 class MasteryUpdateRequest(BaseModel):

@@ -10,7 +10,7 @@ from app.models.user import User
 from app.services.audit_service import AuditService
 from app.services.undo_manager import UndoManager
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(tags=["audit"])
 
 class AuditLogEntry(BaseModel):
     id: int

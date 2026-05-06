@@ -12,7 +12,7 @@ from app.models.user import User
 from app.models.expert_reviewer import KGConflict, ExpertReview, ConflictQueue, ConflictType, ConflictStatus, RecommendationType
 from app.services.expert_reviewer_service import ConflictDetector, ConflictResolver, ConsensusEngine, ConflictEvidence, KGConflict as ServiceConflict, ExpertReview as ServiceReview, ConsensusResult
 
-router = APIRouter(prefix="/expert-reviewer", tags=["expert-reviewer"])
+router = APIRouter(tags=["expert-reviewer"])
 
 
 class ConflictDetail(BaseModel):
