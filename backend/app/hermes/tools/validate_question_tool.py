@@ -28,7 +28,7 @@ def validate_question_tool(question: Dict[str, Any]) -> Dict[str, Any]:
         issues.append(f"题型 '{qtype}' 不在标准类型中")
 
     if qtype in ["单选题", "多选题"]:
-        options = question.get("选项", [])
+        options = question.get("选项") or []
         if not options or len(options) < 2:
             issues.append("选择题缺少选项")
         for i, opt in enumerate(options):
