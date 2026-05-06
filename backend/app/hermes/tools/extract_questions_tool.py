@@ -6,6 +6,8 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+MAX_MARKDOWN_LENGTH = 4000
+
 EXTRACTION_PROMPT = """你是试题解析专家。从以下试卷内容中提取题目，以JSON数组返回。
 
 {page_context}
@@ -46,9 +48,10 @@ def extract_questions_tool(markdown: str, page_context: str = "") -> Dict[str, A
     """
     from app.kg.src.llm_router import LLMRouter
 
+    truncated = len(markdown) > MAX_MARKDOWN_LENGTH
     prompt = EXTRACTION_PROMPT.format(
         page_context=page_context,
-        markdown=markdown[:4000]
+        markdown=markdown[:MAX_MARKDOWN_LENGTH]
     )
 
     try:
@@ -72,11 +75,12 @@ def extract_questions_tool(markdown: str, page_context: str = "") -> Dict[str, A
             "success": True,
             "questions": questions if isinstance(questions, list) else [],
             "count": len(questions) if isinstance(questions, list) else 0,
+            "truncated": truncated,
         }
 
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse LLM response as JSON: {e}")
-        return {"success": False, "error": f"JSON decode error: {e}", "questions": []}
+        return {"success": False, "error": f"JSON decode error: {e}", "questions": [], "count": 0, "truncated": truncated}
     except Exception as e:
         logger.error(f"LLM extraction failed: {e}")
-        return {"success": False, "error": str(e), "questions": []}
+        return {"success": False, "error": str(e), "questions": [], "count": 0, "truncated": truncated}
