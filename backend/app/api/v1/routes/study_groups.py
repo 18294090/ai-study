@@ -10,7 +10,7 @@ from app.core.auth import get_current_user
 from app.models.user import User
 from app.models.study_group import StudyGroup, StudyGroupMember
 
-router = APIRouter(prefix="/study-groups", tags=["study-groups"])
+router = APIRouter(tags=["study-groups"])
 
 
 class GroupResponse(BaseModel):
