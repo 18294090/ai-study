@@ -30,7 +30,7 @@ def detect_conflict(entity_id: str, new_statement: str) -> Dict[str, Any]:
 
         detector = ConflictDetector()
 
-        conflicts = detector.detect_conflicts(entity_id, new_statement)
+        conflicts = detector.detect_conflicts(int(entity_id), new_statement)
 
         return {
             "success": True,

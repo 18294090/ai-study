@@ -6,39 +6,53 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def verify_knowledge(entity_ids: List[str]) -> Dict[str, Any]:
-    """Verify knowledge correctness for entities.
+def verify_knowledge(textbook_id: str = None) -> Dict[str, Any]:
+    """Verify knowledge correctness for KG.
 
     Args:
-        entity_ids: List of entity IDs to verify
+        textbook_id: Optional textbook ID to verify (verifies all if None)
 
     Returns:
-        Dict with verified entities and issues
+        Dict with KG health report
     """
     try:
         from app.kg.agents.kg_linter import KGLinter
 
-        linter = KGLinter()
+        driver = None
+        try:
+            from neo4j import GraphDatabase
+            driver = GraphDatabase.driver(
+                "bolt://localhost:7687",
+                auth=("neo4j", "password")
+            )
+        except Exception:
+            pass
 
-        verified = []
-        issues = []
+        if driver is None:
+            return {
+                "success": False,
+                "error": "neo4j_driver not available",
+                "verified": [],
+                "issues": []
+            }
 
-        for entity_id in entity_ids:
-            result = linter.verify_entity(entity_id)
-            if result.get("valid"):
-                verified.append(entity_id)
-            else:
-                issues.append({
-                    "entity_id": entity_id,
-                    "issues": result.get("issues", [])
-                })
+        linter = KGLinter(neo4j_driver=driver)
+        report = linter.check(textbook_id=textbook_id)
 
         return {
             "success": True,
-            "verified": verified,
-            "issues": issues,
-            "verified_count": len(verified),
-            "issue_count": len(issues)
+            "verified_count": report.total_nodes,
+            "issue_count": len(report.issues),
+            "health_score": report.health_score,
+            "issues": [
+                {
+                    "type": issue.type,
+                    "node_id": issue.node_id,
+                    "description": issue.description,
+                    "severity": issue.severity
+                }
+                for issue in report.issues
+            ]
         }
     except Exception as e:
         logger.error(f"verify_knowledge failed: {e}")
