@@ -39,11 +39,42 @@ class HermesMCPClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            asyncio.create_task(self._consume_stderr())
             self._running = True
             logger.info("Hermes MCP process started")
-            return True
+            return await self._health_check()
         except Exception as e:
             logger.error(f"Failed to start Hermes: {e}")
+            return False
+
+    async def _consume_stderr(self):
+        """Read stderr asynchronously to prevent deadlock."""
+        if self._process and self._process.stderr:
+            while True:
+                try:
+                    line = await self._process.stderr.readline()
+                    if not line:
+                        break
+                    logger.warning(f"Hermes stderr: {line.decode().strip()}")
+                except Exception:
+                    break
+
+    async def _health_check(self) -> bool:
+        """Verify Hermes is ready by calling a simple method."""
+        request = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "tools/list",
+            "params": {}
+        }
+        try:
+            await self._process.stdin.send_str(json.dumps(request) + "\n")
+            await asyncio.wait_for(
+                self._process.stdout.readline(),
+                timeout=10.0
+            )
+            return True
+        except Exception:
             return False
 
     async def stop(self):
@@ -58,10 +89,31 @@ class HermesMCPClient:
         self._request_id += 1
         return self._request_id
 
+    async def __aenter__(self) -> "HermesMCPClient":
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.stop()
+        return False
+
+    def _parse_response(self, response_line: str) -> Dict[str, Any]:
+        """Parse JSON-RPC response and handle errors."""
+        try:
+            response = json.loads(response_line)
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"Invalid JSON: {e}"}
+
+        if "error" in response:
+            return {"success": False, "error": response["error"].get("message", "Unknown error")}
+        return {"success": True, "result": response.get("result", {})}
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call a tool via MCP."""
         if not self._running:
-            await self.start()
+            success = await self.start()
+            if not success:
+                return {"success": False, "error": "Failed to start Hermes"}
 
         request = {
             "jsonrpc": "2.0",
@@ -79,8 +131,10 @@ class HermesMCPClient:
                 self._process.stdout.readline(),
                 timeout=30.0
             )
-            response = json.loads(response_line)
-            return response.get("result", {})
+            result = self._parse_response(response_line)
+            if result.get("success"):
+                return {"success": True, "result": result.get("result", {})}
+            return result
         except asyncio.TimeoutError:
             logger.error(f"Tool call {tool_name} timed out")
             return {"success": False, "error": "Timeout"}
@@ -91,7 +145,9 @@ class HermesMCPClient:
     async def list_tools(self) -> List[MCPToolDefinition]:
         """List available tools from Hermes."""
         if not self._running:
-            await self.start()
+            success = await self.start()
+            if not success:
+                return []
 
         request = {
             "jsonrpc": "2.0",
@@ -106,8 +162,11 @@ class HermesMCPClient:
                 self._process.stdout.readline(),
                 timeout=10.0
             )
-            response = json.loads(response_line)
-            tools = response.get("result", {}).get("tools", [])
+            result = self._parse_response(response_line)
+            if not result.get("success"):
+                logger.error(f"List tools failed: {result.get('error')}")
+                return []
+            tools = result.get("result", {}).get("tools", [])
             return [MCPToolDefinition(**t) for t in tools]
         except Exception as e:
             logger.error(f"List tools failed: {e}")
@@ -116,7 +175,9 @@ class HermesMCPClient:
     async def call_skill(self, skill_name: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Call a Hermes skill."""
         if not self._running:
-            await self.start()
+            success = await self.start()
+            if not success:
+                return {"success": False, "error": "Failed to start Hermes"}
 
         request = {
             "jsonrpc": "2.0",
@@ -134,8 +195,10 @@ class HermesMCPClient:
                 self._process.stdout.readline(),
                 timeout=60.0
             )
-            response = json.loads(response_line)
-            return response.get("result", {})
+            result = self._parse_response(response_line)
+            if result.get("success"):
+                return {"success": True, "result": result.get("result", {})}
+            return result
         except asyncio.TimeoutError:
             logger.error(f"Skill {skill_name} timed out")
             return {"success": False, "error": "Timeout"}
@@ -145,11 +208,14 @@ class HermesMCPClient:
 
 
 _client: Optional[HermesMCPClient] = None
+_lock: asyncio.Lock = asyncio.Lock()
 
 
 async def get_hermes_client() -> HermesMCPClient:
     global _client
     if _client is None:
-        _client = HermesMCPClient()
-        await _client.start()
+        async with _lock:
+            if _client is None:
+                _client = HermesMCPClient()
+                await _client.start()
     return _client
