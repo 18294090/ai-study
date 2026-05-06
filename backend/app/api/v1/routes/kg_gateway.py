@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_user
 from app.models.user import User
 
-router = APIRouter(prefix="/kg", tags=["knowledge-graph"])
+router = APIRouter(tags=["knowledge-graph"])
 
 
 class ExtractRequest(BaseModel):
@@ -42,7 +42,7 @@ async def extract_entities(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("extract_entities", {
+        result = await client.call_tool_via_chat("extract_entities", {
             "source": request.source,
             "source_type": request.source_type,
             "subject_id": request.subject_id
@@ -62,7 +62,7 @@ async def map_relations(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("map_relations", {
+        result = await client.call_tool_via_chat("map_relations", {
             "source_entity_id": request.source_entity_id,
             "target_entity_id": request.target_entity_id,
             "relation_type": request.relation_type,
@@ -84,7 +84,7 @@ async def query_graph(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("query_graph", {
+        result = await client.call_tool_via_chat("query_graph", {
             "query": query,
             "query_type": query_type,
             "filters": {}
@@ -104,7 +104,7 @@ async def detect_conflict(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("detect_conflict", {
+        result = await client.call_tool_via_chat("detect_conflict", {
             "entity_id": request.entity_id,
             "new_statement": request.new_statement
         })
@@ -123,7 +123,7 @@ async def verify_knowledge(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("verify_knowledge", {
+        result = await client.call_tool_via_chat("verify_knowledge", {
             "entity_ids": request.entity_ids
         })
         return result

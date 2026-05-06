@@ -32,7 +32,7 @@ async def start_session(
         p_know = 0.5
         
         client = await get_hermes_client()
-        result = await client.call_tool("tutor_start", {
+        result = await client.call_tool_via_chat("tutor_start", {
             "user_id": request.user_id,
             "concept_id": request.concept_id,
             "p_know": p_know,
@@ -58,7 +58,7 @@ async def get_session(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("tutor_get_state", {
+        result = await client.call_tool_via_chat("tutor_get_state", {
             "session_id": session_id
         })
         
@@ -82,7 +82,7 @@ async def send_message(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("tutor_respond", {
+        result = await client.call_tool_via_chat("tutor_respond", {
             "session_id": session_id,
             "student_message": request.content,
             "role": request.role
@@ -108,7 +108,7 @@ async def end_session(
 
     try:
         client = await get_hermes_client()
-        result = await client.call_tool("tutor_end", {
+        result = await client.call_tool_via_chat("tutor_end", {
             "session_id": session_id,
             "summary": summary
         })
