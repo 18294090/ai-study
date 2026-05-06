@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_user
 from app.models.user import User
 
-router = APIRouter(prefix="/tutor", tags=["tutor"])
+router = APIRouter(tags=["tutor"])
 
 
 class StartSessionRequest(BaseModel):
