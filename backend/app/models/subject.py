@@ -22,9 +22,10 @@ question_tags = Table(
 )
 class Subject(Base):
     """科目模型"""
-    __tablename__ = "subjects"    
+    __tablename__ = "subjects"
     # id、created_at、updated_at 由 Base 提供
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, comment="科目名称")
+    grade_level: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="学段: 小学/初中/高中/大学")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="科目描述")
     creator_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     creator = relationship("User", back_populates="created_subjects", foreign_keys=[creator_id])

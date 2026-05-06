@@ -6,6 +6,7 @@ from datetime import datetime
 class SubjectBase(BaseModel):
     """科目基础模型"""
     name: str = Field(..., min_length=1, max_length=50, description="科目名称")
+    grade_level: Optional[str] = Field(None, description="学段: 小学/初中/高中/大学")
     description: Optional[str] = Field(None, max_length=200, description="科目描述")
 
 
