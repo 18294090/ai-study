@@ -1,0 +1,14 @@
+import pytest
+from fastapi.testclient import TestClient
+from backend.app.main import app
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+def test_hermes_health_endpoint(client):
+    response = client.get("/api/v1/hermes/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"

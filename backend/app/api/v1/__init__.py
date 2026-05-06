@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.hermes import hermes_router
 from .routes.auth import router as auth_router
 from .routes.subjects import router as subjects_router
 from .routes.questions import router as questions_router
@@ -27,3 +28,4 @@ api_v1_router.include_router(fsrs_router, prefix="/fsrs", tags=["fsrs"])
 api_v1_router.include_router(expert_reviewer_router, prefix="/expert-reviewer", tags=["expert-reviewer"])
 api_v1_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_v1_router.include_router(study_groups_router, prefix="/study-groups", tags=["study-groups"])
+api_v1_router.include_router(hermes_router, tags=["hermes"])
