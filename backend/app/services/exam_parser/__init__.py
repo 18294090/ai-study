@@ -1,21 +1,20 @@
-"""Exam Parser - Extract questions from various document formats."""
-
-__version__ = "0.1.0"
+"""Exam Parser - Extract questions from documents with LLM assistance."""
 
 from .core import Question, LineBBox
-from .parsers import (
-    parse_pdf,
-    parse_docx,
-    parse_image,
-)
-from .utils import parse_path, export_results
+from .exam_analyzer import ExamAnalyzer, QuestionAnalysis, rule_based_type_detection
+from .quality_evaluator import ExtractionQuality, evaluate_extraction, get_quality_report
+from .parsers.pdf import parse_pdf, parse_markdown_to_questions, extract_questions_with_answers
 
 __all__ = [
     "Question",
     "LineBBox",
+    "ExamAnalyzer",
+    "QuestionAnalysis",
+    "rule_based_type_detection",
+    "ExtractionQuality",
+    "evaluate_extraction",
+    "get_quality_report",
     "parse_pdf",
-    "parse_docx",
-    "parse_image",
-    "parse_path",
-    "export_results",
+    "parse_markdown_to_questions",
+    "extract_questions_with_answers",
 ]
