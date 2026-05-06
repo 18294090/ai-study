@@ -1,16 +1,18 @@
 """Hermes HTTP gateway routes."""
 
+import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from typing import Optional
 import tempfile
 import os
 from pydantic import BaseModel
 
-from .runtime import HermesRuntime
 from .skills.exam_skill import run_exam_skill
 from app.core.auth import get_current_user
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
+VERSION = "1.0.0"
 
 router = APIRouter(prefix="/hermes", tags=["hermes"])
 
@@ -27,11 +29,16 @@ async def extract_exam(
     current_user: User = Depends(get_current_user)
 ):
     """Extract questions from exam PDF using Hermes skill."""
-    result = await run_exam_skill({
-        "file_path": request.file_path,
-        "confidence_threshold": request.confidence_threshold,
-        "source": request.source,
-    })
+    logger.info(f"Extract exam request for file: {request.file_path}")
+    try:
+        result = await run_exam_skill({
+            "file_path": request.file_path,
+            "confidence_threshold": request.confidence_threshold,
+            "source": request.source,
+        })
+    except Exception as e:
+        logger.error(f"Error running exam skill: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Extraction failed"))
@@ -58,10 +65,15 @@ async def upload_and_extract_exam(
         with open(file_path, "wb") as f:
             f.write(content)
 
-        result = await run_exam_skill({
-            "file_path": file_path,
-            "confidence_threshold": confidence_threshold,
-        })
+        logger.info(f"Processing uploaded file: {file.filename}")
+        try:
+            result = await run_exam_skill({
+                "file_path": file_path,
+                "confidence_threshold": confidence_threshold,
+            })
+        except Exception as e:
+            logger.error(f"Error running exam skill: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "Extraction failed"))
@@ -77,4 +89,4 @@ async def upload_and_extract_exam(
 @router.get("/health")
 async def hermes_health():
     """Health check for Hermes runtime."""
-    return {"status": "ok", "runtime": "hermes", "version": "1.0.0"}
+    return {"status": "ok", "runtime": "hermes", "version": VERSION}
