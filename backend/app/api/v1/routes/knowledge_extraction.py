@@ -187,7 +187,7 @@ async def compare_exam_extraction(
             hermes_result = await run_exam_skill({"file_path": file_path})
             results["hermes"] = hermes_result
 
-        if use_hermes:
+        if not use_hermes:
             from app.services.exam_parser.agent.exam_agent import ExamAgent
             agent = ExamAgent(file_path)
             langgraph_result = agent.run()
