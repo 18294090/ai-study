@@ -1,0 +1,201 @@
+# ===========================================
+# 题库管理系统 - 统一配置文件
+# ===========================================
+# 所有系统配置集中在此文件
+
+# ===========================================
+# 应用基础配置
+# ===========================================
+app:
+  name: "题库管理系统"
+  version: "1.0.0"
+  env: "development"
+  description: "Production-Ready FastAPI Project"
+
+# ===========================================
+# 服务器配置
+# ===========================================
+server:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false
+  workers: 1
+
+# ===========================================
+# API 配置
+# ===========================================
+api:
+  v1_prefix: "/api/v1"
+  internal_prefix: "/internal"
+
+# ===========================================
+# 数据库配置
+# ===========================================
+database:
+  url: "postgresql+asyncpg://postgres:123@localhost:5432/mydb"
+  url_fallback: "${DATABASE_URL:postgresql+asyncpg://postgres:123@localhost:5432/mydb}"
+  sqlalchemy_url: "postgresql://postgres:123@localhost:5432/mydb"
+  echo: false
+  create_tables: true
+
+# ===========================================
+# 安全配置
+# ===========================================
+security:
+  secret_key: "${SECRET_KEY}"
+  secret_key_default: "secret-key-please-change-for-production"
+  algorithm: "HS256"
+  access_token_expire_minutes: 10080
+  refresh_token_expire_minutes: 2592000
+
+# ===========================================
+# CORS 配置
+# ===========================================
+cors:
+  origins:
+    - "http://localhost:3000"
+  allow_credentials: true
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"
+
+# ===========================================
+# 文件上传配置
+# ===========================================
+upload:
+  dir: "./uploads"
+  max_size_mb: 100
+  max_upload_size_mb: 5
+  allowed_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+  media_root: "./media"
+
+# ===========================================
+# 日志配置
+# ===========================================
+logging:
+  level: "INFO"
+  json_logs: false
+  log_file: null
+
+# ===========================================
+# 缓存配置
+# ===========================================
+cache:
+  redis_url: "${REDIS_URL}"
+  redis_url_default: "redis://localhost:6379/0"
+  ttl: 300
+
+# ===========================================
+# 任务队列配置
+# ===========================================
+celery:
+  broker_url: "redis://localhost:6379/1"
+  result_backend: "redis://localhost:6379/2"
+
+# ===========================================
+# LLM 配置 (统一)
+# ===========================================
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key_env: "OPENAI_API_KEY"
+  base_url: "https://api.openai.com/v1"
+
+ollama:
+  base_url: "http://localhost:11434"
+
+# ===========================================
+# PDF 解析配置
+# ===========================================
+parsing:
+  default_parsers:
+    - "mineru"
+    - "marker"
+    - "docling"
+  device: "cuda"
+
+# ===========================================
+# 存储配置 (Neo4j + Qdrant)
+# ===========================================
+storage:
+  neo4j:
+    uri_env: "NEO4J_URI"
+    uri_default: "bolt://localhost:7687"
+    user_env: "NEO4J_USER"
+    user_default: "neo4j"
+    password_env: "NEO4J_PASSWORD"
+    password_default: "12345678"
+    database: "neo4j"
+  qdrant:
+    url_env: "QDRANT_URL"
+    url_default: "http://localhost:6333"
+    collection: "textbook_chunks"
+
+# ===========================================
+# 评估配置
+# ===========================================
+eval:
+  default_threshold: 0.7
+  min_f1: 0.5
+
+# ===========================================
+# GraphRAG 配置
+# ===========================================
+graphrag:
+  embedding:
+    provider: "bge-m3"
+    model: "BAAI/bge-m3"
+    api_key_env: "OPENAI_API_KEY"
+    base_url: "http://localhost:8000/v1"
+  reranker:
+    provider: "cohere"
+    model: "rerank-v3"
+    api_key_env: "COHERE_API_KEY"
+  generator:
+    default_model: "gpt-4o"
+    reasoning_model: "o3"
+    api_key_env: "OPENAI_API_KEY"
+  retrieval:
+    vector_top_k: 30
+    rerank_top_k: 10
+
+# ===========================================
+# Hermes Agent 配置
+# ===========================================
+hermes:
+  runtime:
+    host: "127.0.0.1"
+    port: 8080
+    max_iterations: 90
+    timeout: 300
+  memory:
+    type: "sqlite"
+    path: "~/.hermes/memory.db"
+  skills:
+    exam_skill:
+      enabled: true
+      confidence_threshold: 0.6
+      tools:
+        - parse_pdf_tool
+        - extract_questions_tool
+        - validate_question_tool
+        - refine_question_tool
+  providers:
+    default: "openrouter"
+    openrouter:
+      api_key: "${OPENROUTER_API_KEY}"
+      model: "deepseek/deepseek-chat-v3"
+
+# ===========================================
+# 功能开关
+# ===========================================
+features:
+  docs_enabled: true
+  testing: false
+  debug: false
+  prometheus_enabled: true
+  prometheus_metrics_path: "/internal/metrics"

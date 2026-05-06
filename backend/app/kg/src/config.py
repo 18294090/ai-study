@@ -1,3 +1,5 @@
+"""KG 配置 - 从统一 config.yaml 加载"""
+
 from __future__ import annotations
 import os
 import yaml
@@ -6,7 +8,10 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 
-CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+def get_root_config_path() -> Path:
+    """获取根目录的 config.yaml 路径"""
+    # backend/app/kg/src/ -> backend/app/kg/ -> backend/app/ -> backend/ -> project root
+    return Path(__file__).resolve().parent.parent.parent.parent.parent / "config.yaml"
 
 
 @dataclass
@@ -26,22 +31,26 @@ class Neo4jConfig:
     user_env: str
     password_env: str
     database: str = "neo4j"
+    uri_default: str = "bolt://localhost:7687"
+    user_default: str = "neo4j"
+    password_default: str = "12345678"
 
     def get_uri(self) -> str:
-        return os.environ.get(self.uri_env, "bolt://localhost:7687")
+        return os.environ.get(self.uri_env, self.uri_default)
     def get_user(self) -> str:
-        return os.environ.get(self.user_env, "neo4j")
+        return os.environ.get(self.user_env, self.user_default)
     def get_password(self) -> str:
-        return os.environ.get(self.password_env, "")
+        return os.environ.get(self.password_env, self.password_default)
 
 
 @dataclass
 class QdrantConfig:
     url_env: str
-    collection: str
+    url_default: str = "http://localhost:6333"
+    collection: str = "textbook_chunks"
 
     def get_url(self) -> str:
-        return os.environ.get(self.url_env, "http://localhost:6333")
+        return os.environ.get(self.url_env, self.url_default)
 
 
 @dataclass
@@ -110,20 +119,25 @@ class KGConfig:
     graphrag: GraphRAGConfig
 
 
-def load_config(path: Path = CONFIG_PATH) -> KGConfig:
+def load_config(path: Optional[Path] = None) -> KGConfig:
+    if path is None:
+        path = get_root_config_path()
+
     with open(path) as f:
         data = yaml.safe_load(f)
 
+    storage_cfg = data.get("storage", {})
+
     return KGConfig(
-        llm=LLMConfig(**data["llm"]),
-        parsing=ParsingConfig(**data["parsing"]),
-        storage=data["storage"],
-        eval=EvalConfig(**data["eval"]),
+        llm=LLMConfig(**data.get("llm", {})),
+        parsing=ParsingConfig(**data.get("parsing", {})),
+        storage=data.get("storage", {}),
+        eval=EvalConfig(**data.get("eval", {})),
         graphrag=GraphRAGConfig(
-            embedding=EmbeddingConfig(**data["graphrag"]["embedding"]),
-            reranker=RerankerConfig(**data["graphrag"]["reranker"]),
-            generator=GeneratorConfig(**data["graphrag"]["generator"]),
-            retrieval=RetrievalConfig(**data["graphrag"]["retrieval"]),
+            embedding=EmbeddingConfig(**data.get("graphrag", {}).get("embedding", {})),
+            reranker=RerankerConfig(**data.get("graphrag", {}).get("reranker", {})),
+            generator=GeneratorConfig(**data.get("graphrag", {}).get("generator", {})),
+            retrieval=RetrievalConfig(**data.get("graphrag", {}).get("retrieval", {})),
         ),
     )
 

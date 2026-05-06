@@ -1,38 +1,76 @@
-"""Hermes runtime configuration."""
+"""Hermes runtime configuration - 从统一 config.yaml 加载"""
 
-from pathlib import Path
-from typing import Optional
-import yaml
+from typing import Dict, Any, Optional
 
 
 class HermesConfig:
-    def __init__(self, config_path: Optional[str] = None):
-        if config_path is None:
-            config_path = Path(__file__).parent.parent.parent.parent / "hermes" / "config.yaml"
-        self.config_path = Path(config_path)
-        self._config = self._load_config()
+    """Hermes 配置类 - 从 Settings 读取"""
 
-    def _load_config(self) -> dict:
-        if not self.config_path.exists():
-            return self._default_config()
-        with open(self.config_path) as f:
-            return yaml.safe_load(f)
+    def __init__(self, settings=None):
+        from app.core.config import get_settings as _get_settings
+        self._settings = settings or _get_settings()
+        self._hermes_cfg = self._settings.get_hermes_config()
 
-    def _default_config(self) -> dict:
-        return {
-            "hermes": {
-                "runtime": {"host": "127.0.0.1", "port": 8080},
-                "skills": {"exam_skill": {"enabled": True, "confidence_threshold": 0.6}},
-                "providers": {"default": "openrouter"},
-            }
-        }
-
-    def get(self, key: str, default=None):
+    def get(self, key: str, default=None) -> Any:
+        """获取配置值，支持 dot notation (如 'runtime.host')"""
         keys = key.split(".")
-        value = self._config
+        value = self._hermes_cfg
         for k in keys:
-            value = value.get(k, default)
-        return value
+            if isinstance(value, dict):
+                value = value.get(k, default)
+            else:
+                return default
+        return value if value is not None else default
+
+    @property
+    def runtime_host(self) -> str:
+        return self._settings.HERMES_RUNTIME_HOST
+
+    @property
+    def runtime_port(self) -> int:
+        return self._settings.HERMES_RUNTIME_PORT
+
+    @property
+    def max_iterations(self) -> int:
+        return self._settings.HERMES_MAX_ITERATIONS
+
+    @property
+    def timeout(self) -> int:
+        return self._settings.HERMES_TIMEOUT
+
+    @property
+    def memory_type(self) -> str:
+        return self._settings.HERMES_MEMORY_TYPE
+
+    @property
+    def memory_path(self) -> str:
+        return self._settings.HERMES_MEMORY_PATH
+
+    @property
+    def exam_skill_enabled(self) -> bool:
+        return self._settings.HERMES_EXAM_SKILL_ENABLED
+
+    @property
+    def exam_confidence_threshold(self) -> float:
+        return self._settings.HERMES_EXAM_CONFIDENCE_THRESHOLD
+
+    @property
+    def provider_default(self) -> str:
+        return self._settings.HERMES_PROVIDER_DEFAULT
+
+    @property
+    def openrouter_api_key_env(self) -> str:
+        return self._settings.HERMES_OPENROUTER_API_KEY_ENV
+
+    @property
+    def openrouter_model(self) -> str:
+        return self._settings.HERMES_OPENROUTER_MODEL
+
+    def get_provider_api_key(self) -> str:
+        """获取 provider API key 从环境变量"""
+        import os
+        api_key_env = self.openrouter_api_key_env
+        return os.getenv(api_key_env, "")
 
 
 _config: Optional[HermesConfig] = None
