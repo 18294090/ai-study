@@ -1,9 +1,9 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, List
+from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
 
 from app.db.session import get_db
 from app.core.auth import get_current_user
@@ -11,14 +11,6 @@ from app.models.user import User
 from app.models.study_group import StudyGroup, StudyGroupMember
 
 router = APIRouter(prefix="/study-groups", tags=["study-groups"])
-
-
-class CreateGroupRequest(BaseModel):
-    name: str
-    description: Optional[str] = None
-    subject_ids: Optional[List[int]] = None
-    tags: Optional[List[str]] = None
-    is_public: str = "public"
 
 
 class GroupResponse(BaseModel):
@@ -30,6 +22,9 @@ class GroupResponse(BaseModel):
     is_public: str
     created_at: datetime
 
+    class Config:
+        from_attributes = True
+
 
 class MemberResponse(BaseModel):
     user_id: int
@@ -38,9 +33,16 @@ class MemberResponse(BaseModel):
     joined_at: datetime
 
 
-class AddMemberRequest(BaseModel):
-    user_id: int
-    nickname: Optional[str] = None
+class CreateGroupRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+class GroupSearchResponse(BaseModel):
+    groups: List[GroupResponse]
+    total: int
+    suggestions: Optional[List[str]] = None
 
 
 @router.post("/", response_model=GroupResponse)
@@ -49,29 +51,27 @@ async def create_group(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """创建学习小组"""
+    """创建学习小组 (AI 可辅助命名和描述)"""
     group = StudyGroup(
         name=request.name,
         description=request.description,
         owner_id=current_user.id,
-        subject_ids=request.subject_ids,
         tags=request.tags,
-        is_public=request.is_public
+        is_public="public"
     )
     db.add(group)
-    
+
+    await db.flush()
+
     member = StudyGroupMember(
-        group_id=0,
+        group_id=group.id,
         user_id=current_user.id,
         role="owner"
     )
-    
-    await db.flush()
-    member.group_id = group.id
     db.add(member)
     await db.commit()
     await db.refresh(group)
-    
+
     return GroupResponse(
         id=group.id,
         name=group.name,
@@ -90,7 +90,6 @@ async def list_groups(
     limit: int = 20,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
 ):
     """列出学习小组"""
     stmt = select(StudyGroup)
@@ -101,7 +100,7 @@ async def list_groups(
     stmt = stmt.order_by(StudyGroup.created_at.desc()).limit(limit).offset(offset)
     result = await db.execute(stmt)
     groups = result.scalars().all()
-    
+
     responses = []
     for g in groups:
         count_result = await db.execute(
@@ -116,23 +115,52 @@ async def list_groups(
     return responses
 
 
+@router.get("/search")
+async def search_groups(
+    q: str = Query(..., min_length=1),
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 搜索和推荐学习小组"""
+    try:
+        from app.services.group_advisor import search_groups_with_ai
+        return await search_groups_with_ai(q, limit, db)
+    except Exception:
+        stmt = select(StudyGroup).filter(StudyGroup.name.contains(q)).limit(limit)
+        result = await db.execute(stmt)
+        groups = result.scalars().all()
+        return {"groups": [{"id": g.id, "name": g.name} for g in groups], "suggestions": []}
+
+
+@router.get("/recommendations")
+async def get_group_recommendations(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 为用户推荐适合的学习小组"""
+    try:
+        from app.services.group_advisor import recommend_groups_for_user
+        return await recommend_groups_for_user(user_id, db)
+    except Exception as e:
+        return {"recommendations": [], "error": str(e)}
+
+
 @router.get("/{group_id}", response_model=GroupResponse)
 async def get_group(
     group_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """获取小组详情"""
     result = await db.execute(select(StudyGroup).filter(StudyGroup.id == group_id))
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
+
     count_result = await db.execute(
         select(func.count(StudyGroupMember.id)).filter(StudyGroupMember.group_id == group_id)
     )
     member_count = count_result.scalar() or 0
-    
+
     return GroupResponse(
         id=group.id, name=group.name, description=group.description,
         owner_id=group.owner_id, member_count=member_count,
@@ -140,45 +168,42 @@ async def get_group(
     )
 
 
-@router.post("/{group_id}/members")
-async def add_member(
+@router.post("/{group_id}/join")
+async def join_group(
     group_id: int,
-    request: AddMemberRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """添加成员到小组"""
+    """加入学习小组"""
     result = await db.execute(select(StudyGroup).filter(StudyGroup.id == group_id))
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
+
     existing = await db.execute(
         select(StudyGroupMember).filter(
             StudyGroupMember.group_id == group_id,
-            StudyGroupMember.user_id == request.user_id
+            StudyGroupMember.user_id == current_user.id
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="User already in group")
-    
+        raise HTTPException(status_code=400, detail="Already in group")
+
     member = StudyGroupMember(
         group_id=group_id,
-        user_id=request.user_id,
-        role="member",
-        nickname=request.nickname
+        user_id=current_user.id,
+        role="member"
     )
     db.add(member)
     await db.commit()
-    
-    return {"message": "Member added", "user_id": request.user_id}
+
+    return {"message": "Joined group", "group_id": group_id}
 
 
 @router.get("/{group_id}/members")
 async def list_members(
     group_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """列出小组成员"""
     result = await db.execute(
@@ -210,7 +235,7 @@ async def remove_member(
         raise HTTPException(status_code=404, detail="Group not found")
     if group.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only owner can remove members")
-    
+
     result = await db.execute(
         select(StudyGroupMember).filter(
             StudyGroupMember.group_id == group_id,
@@ -220,10 +245,7 @@ async def remove_member(
     member = result.scalar_one_or_none()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
-    if member.role == "owner":
-        raise HTTPException(status_code=400, detail="Cannot remove owner")
-    
+
     await db.delete(member)
     await db.commit()
     return {"message": "Member removed"}
@@ -242,7 +264,20 @@ async def delete_group(
         raise HTTPException(status_code=404, detail="Group not found")
     if group.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only owner can delete group")
-    
+
     await db.delete(group)
     await db.commit()
     return {"message": "Group deleted"}
+
+
+@router.get("/{group_id}/suggestions")
+async def get_group_suggestions(
+    group_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 为小组生成改进建议"""
+    try:
+        from app.services.group_advisor import suggest_group_improvements
+        return await suggest_group_improvements(group_id, db)
+    except Exception as e:
+        return {"suggestions": [], "error": str(e)}

@@ -1,209 +1,128 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, func
 from typing import List, Optional
+from pydantic import BaseModel
+
 from app.db.session import get_db
-from app.models.subject import Subject
-from app.schemas.subject import SubjectCreate, SubjectUpdate, SubjectResponse, SubjectDetailResponse
 from app.core.auth import get_current_user
 from app.models.user import User
+from app.models.subject import Subject
 from app.models.knowledge import KnowledgePoint
-from app.schemas.knowledge import KnowledgePointCreate, KnowledgePointResponse
-from app.utils.knowledge_point_identifiers import (
-    generate_knowledge_point_code,
-    generate_knowledge_point_slug,
-)
 
-router = APIRouter()
+router = APIRouter(prefix="/subjects", tags=["subjects"])
 
-@router.post("/", response_model=SubjectResponse, status_code=status.HTTP_201_CREATED)
-async def create_subject(
-    subject: SubjectCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """创建学科"""
-    db_subject = Subject(
-        **subject.dict(),
-        user_id=current_user.id
-    )
-    db.add(db_subject)
-    await db.commit()
-    await db.refresh(db_subject)
-    return db_subject
+
+class SubjectResponse(BaseModel):
+    id: int
+    name: str
+    grade_level: Optional[str]
+    description: Optional[str]
+    knowledge_points_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class SubjectListResponse(BaseModel):
+    subjects: List[SubjectResponse]
+    total: int
+
 
 @router.get("/", response_model=List[SubjectResponse])
-async def get_subjects(
+async def list_subjects(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
 ):
-    """获取当前用户的所有学科"""
+    """获取所有学科列表"""
     query = select(
         Subject,
-        func.count(KnowledgePoint.id).label("knowledge_points_count")
+        func.count(KnowledgePoint.id).label("kp_count")
     ).outerjoin(
         KnowledgePoint,
         Subject.id == KnowledgePoint.subject_id
-    ).where(Subject.user_id == current_user.id).group_by(
-        Subject.id
-    ).offset(skip).limit(limit)
-    
-    result = await db.execute(query)
-    
-    subjects = []
-    for subject, knowledge_points_count in result:
-        subject_dict = {
-            **subject.__dict__,
-            "knowledge_points_count": knowledge_points_count
-        }
-        subjects.append(subject_dict)
-    
-    return subjects
+    ).group_by(Subject.id).offset(skip).limit(limit)
 
-@router.get("/{subject_id}", response_model=SubjectDetailResponse)
-async def get_subject(
-    subject_id: int = Path(..., description="学科ID"),
+    result = await db.execute(query)
+    return [
+        SubjectResponse(
+            id=s.id,
+            name=s.name,
+            grade_level=s.grade_level,
+            description=s.description,
+            knowledge_points_count=kp_count
+        )
+        for s, kp_count in result
+    ]
+
+
+@router.get("/search")
+async def search_subjects(
+    q: str = Query(..., min_length=1),
+    limit: int = 10,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+):
+    """搜索学科"""
+    query = select(Subject).where(
+        Subject.name.contains(q)
+    ).limit(limit)
+    result = await db.execute(query)
+    subjects = result.scalars().all()
+    return [{"id": s.id, "name": s.name, "grade_level": s.grade_level} for s in subjects]
+
+
+@router.get("/{subject_id}", response_model=SubjectResponse)
+async def get_subject(
+    subject_id: int,
+    db: AsyncSession = Depends(get_db),
 ):
     """获取学科详情"""
-    # 检查用户是否是学科成员（所有者或已加入成员）
-    from app.core.permissions import check_subject_member
-    await check_subject_member(subject_id, current_user, db)
+    query = select(
+        Subject,
+        func.count(KnowledgePoint.id).label("kp_count")
+    ).outerjoin(
+        KnowledgePoint,
+        Subject.id == KnowledgePoint.subject_id
+    ).where(Subject.id == subject_id).group_by(Subject.id)
 
-    query = select(Subject).where(Subject.id == subject_id)
     result = await db.execute(query)
-    subject = result.scalar_one_or_none()
+    row = result.first()
 
-    if not subject:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在"
-        )
+    if not row:
+        raise HTTPException(status_code=404, detail="学科不存在")
 
-    # 获取知识点数量
-    count_query = select(func.count()).where(KnowledgePoint.subject_id == subject_id)
-    knowledge_points_count = await db.scalar(count_query) or 0
-
-    # 构建响应
-    return {
-        **subject.__dict__,
-        "knowledge_points_count": knowledge_points_count
-    }
-
-@router.put("/{subject_id}", response_model=SubjectResponse)
-async def update_subject(
-    subject_id: int = Path(..., description="学科ID"),
-    subject_update: Optional[SubjectUpdate] = None,  # 添加默认值 None
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """更新学科"""
-    if subject_update is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请求体不能为空"
-        )
-
-    # 检查用户是否是学科所有者
-    from app.core.permissions import check_subject_owner
-    await check_subject_owner(subject_id, current_user, db)
-
-    query = select(Subject).where(Subject.id == subject_id)
-    result = await db.execute(query)
-    db_subject = result.scalar_one_or_none()
-
-    if not db_subject:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在"
-        )
-
-    # 更新学科
-    for key, value in subject_update.dict(exclude_unset=True).items():
-        setattr(db_subject, key, value)
-
-    await db.commit()
-    await db.refresh(db_subject)
-    return db_subject
-
-@router.delete("/{subject_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_subject(
-    subject_id: int = Path(..., description="学科ID"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """删除学科"""
-    # 检查用户是否是学科所有者
-    from app.core.permissions import check_subject_owner
-    await check_subject_owner(subject_id, current_user, db)
-
-    query = select(Subject).where(Subject.id == subject_id)
-    result = await db.execute(query)
-    db_subject = result.scalar_one_or_none()
-
-    if not db_subject:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在"
-        )
-
-    # 删除学科
-    await db.delete(db_subject)
-    await db.commit()
-
-@router.get("/{subject_id}/recommendations")
-async def get_subject_recommendations(
-    subject_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取学科学习建议"""
-    # 验证学科属于当前用户
-    subject_query = select(Subject).where(
-        Subject.id == subject_id,
-        Subject.user_id == current_user.id
+    subject, kp_count = row
+    return SubjectResponse(
+        id=subject.id,
+        name=subject.name,
+        grade_level=subject.grade_level,
+        description=subject.description,
+        knowledge_points_count=kp_count
     )
-    subject_result = await db.execute(subject_query)
-    subject = subject_result.scalar_one_or_none()
-    if not subject:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在或您没有权限访问"
-        )    
-    # 分析用户薄弱知识点
-    weak_points = await analyze_weak_points(subject_id, current_user.id, db)
-    recommendations = await generate_learning_recommendations(
-        subject_id,
-        current_user.id,
-        weak_points,
-        db
-    )
-    return recommendations
+
 
 @router.get("/{subject_id}/knowledge-points")
-async def get_knowledge_points(
+async def get_subject_knowledge_points(
     subject_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
 ):
     """获取学科的知识点"""
-    # 验证学科属于当前用户
-    subject_query = select(Subject).where(
-        Subject.id == subject_id,
-        Subject.user_id == current_user.id
-    )
-    subject_result = await db.execute(subject_query)
-    subject = subject_result.scalar_one_or_none()
-    if not subject:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="学科不存在或您没有权限访问"
-        )
-    # 获取知识点
     query = select(KnowledgePoint).where(KnowledgePoint.subject_id == subject_id)
     result = await db.execute(query)
-    knowledge_points = result.scalars().all()    
-    return knowledge_points
+    return result.scalars().all()
+
+
+@router.get("/{subject_id}/suggestions")
+async def get_subject_suggestions(
+    subject_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 根据学科和用户学习数据生成学习建议"""
+    try:
+        from app.services.learning_advisor import generate_subject_suggestions
+        suggestions = await generate_subject_suggestions(subject_id, user_id, db)
+        return suggestions
+    except Exception as e:
+        return {"suggestions": [], "error": str(e)}
