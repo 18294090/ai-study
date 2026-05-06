@@ -24,12 +24,12 @@ class HermesRuntime:
     """
 
     def __init__(self, config: Optional[dict] = None):
-        self.config = config or {}
         self.tools: Dict[str, ToolDefinition] = {}
-        self._initialized = False
 
     def register_tool(self, name: str, description: str, parameters: dict, handler: Callable):
         """Register a tool with the runtime."""
+        if not callable(handler):
+            raise TypeError("handler must be callable")
         self.tools[name] = ToolDefinition(
             name=name,
             description=description,
@@ -41,15 +41,15 @@ class HermesRuntime:
     def register_tools_from_module(self, module):
         """Auto-register tools from a module.
 
-        Looks for functions decorated with @tool or named *_tool.
+        Looks for functions named *_tool.
         """
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
-            if callable(attr) and hasattr(attr, "_is_hermes_tool"):
+            if callable(attr) and attr_name.endswith("_tool"):
                 self.register_tool(
-                    name=attr._tool_name,
-                    description=attr._tool_description,
-                    parameters=attr._tool_parameters,
+                    name=attr_name,
+                    description="",
+                    parameters={},
                     handler=attr,
                 )
 
